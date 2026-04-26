@@ -122,6 +122,59 @@ test('sidepanel html contains contribution mode runtime UI and loads the module 
   assert.ok(moduleIndex < sidepanelIndex);
 });
 
+test('sidepanel settings refresh preserves rendered step progress', () => {
+  const applySettingsStateSource = extractFunction('applySettingsState');
+  assert.doesNotMatch(
+    applySettingsStateSource,
+    /syncStepDefinitionsForMode\(Boolean\(state\?\.plusModeEnabled\),\s*\{\s*render:\s*true\s*\}\)/
+  );
+  assert.match(applySettingsStateSource, /renderStepStatuses\(latestState\)/);
+
+  const bundle = [
+    extractFunction('isDoneStatus'),
+    extractFunction('getStepStatuses'),
+    extractFunction('renderSingleStepStatus'),
+    extractFunction('renderStepStatuses'),
+    extractFunction('updateProgressCounter'),
+  ].join('\n');
+
+  const api = new Function(`
+const STATUS_ICONS = {
+  pending: '',
+  running: '',
+  completed: 'C',
+  failed: 'F',
+  stopped: 'S',
+  manual_completed: 'M',
+  skipped: 'K',
+};
+let latestState = { stepStatuses: { 1: 'completed', 2: 'running', 3: 'pending' } };
+let STEP_IDS = [1, 2, 3];
+let STEP_DEFAULT_STATUSES = { 1: 'pending', 2: 'pending', 3: 'pending' };
+const rows = new Map(STEP_IDS.map((step) => [step, { className: 'step-row' }]));
+const statusEls = new Map(STEP_IDS.map((step) => [step, { textContent: '' }]));
+const document = {
+  querySelector(selector) {
+    const match = selector.match(/data-step="(\\d+)"/);
+    const step = match ? Number(match[1]) : 0;
+    return selector.includes('step-status') ? statusEls.get(step) : rows.get(step);
+  },
+};
+const stepsProgress = { textContent: '' };
+${bundle}
+return { renderStepStatuses, rows, statusEls, stepsProgress };
+`)();
+
+  api.renderStepStatuses();
+
+  assert.equal(api.rows.get(1).className, 'step-row completed');
+  assert.equal(api.rows.get(2).className, 'step-row running');
+  assert.equal(api.rows.get(3).className, 'step-row pending');
+  assert.equal(api.statusEls.get(1).textContent, 'C');
+  assert.equal(api.statusEls.get(2).textContent, '');
+  assert.equal(api.stepsProgress.textContent, '1 / 3');
+});
+
 test('collectSettingsPayload omits custom password and local sync settings in contribution mode', () => {
   const bundle = extractFunction('collectSettingsPayload');
 
@@ -195,6 +248,7 @@ return {
 `)(normalizeIcloudTargetMailboxType, normalizeIcloudForwardMailProvider);
 
   const contributionPayload = api.collectSettingsPayload();
+  assert.equal('panelMode' in contributionPayload, false);
   assert.equal('customPassword' in contributionPayload, false);
   assert.equal('accountRunHistoryTextEnabled' in contributionPayload, false);
   assert.equal('accountRunHistoryHelperBaseUrl' in contributionPayload, false);
@@ -203,6 +257,7 @@ return {
 
   api.setLatestState({ contributionMode: false });
   const normalPayload = api.collectSettingsPayload();
+  assert.equal(normalPayload.panelMode, 'cpa');
   assert.equal(normalPayload.customPassword, 'Secret123!');
   assert.equal(normalPayload.accountRunHistoryTextEnabled, true);
   assert.equal(normalPayload.accountRunHistoryHelperBaseUrl, 'http://127.0.0.1:17373');
@@ -235,6 +290,8 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   let latestState = {
     contributionMode: false,
     panelMode: 'sub2api',
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'codex号池',
     contributionSessionId: '',
     contributionStatus: '',
     contributionStatusMessage: '',
@@ -262,6 +319,7 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
     btnOpenAccountRecords: createElement(),
     btnOpenContributionUpload: createElement(),
     btnStartContribution: createElement(),
+    contributionModeBadge: createElement(),
     inputContributionNickname: createElement({ value: '贡献者昵称' }),
     inputContributionQq: createElement({ value: '123456' }),
     contributionCallbackStatus: createElement(),
@@ -357,7 +415,9 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
             state: message.payload.enabled
               ? {
                 contributionMode: true,
-                panelMode: 'cpa',
+                panelMode: 'sub2api',
+                contributionSource: 'sub2api',
+                contributionTargetGroupName: 'codex号池',
                 contributionNickname: '',
                 contributionQq: '',
                 contributionSessionId: '',
@@ -372,6 +432,8 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
               : {
                 contributionMode: false,
                 panelMode: 'cpa',
+                contributionSource: 'cpa',
+                contributionTargetGroupName: '',
                 contributionNickname: '',
                 contributionQq: '',
                 contributionSessionId: '',
@@ -391,7 +453,7 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
             state: {
               ...latestState,
               contributionStatus: 'processing',
-              contributionStatusMessage: '已提交回调，等待 CPA 确认',
+              contributionStatusMessage: '已提交回调，等待服务端确认',
               contributionCallbackStatus: 'submitted',
               contributionCallbackMessage: '已提交回调',
             },
@@ -418,13 +480,15 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   manager.render();
   assert.equal(dom.contributionModePanel.hidden, true);
   assert.equal(dom.btnContributionMode.disabled, false);
+  assert.equal(dom.contributionModeBadge.textContent, '');
 
   manager.bindEvents();
   await dom.btnContributionMode.listeners.click();
 
   assert.equal(dom.contributionModePanel.hidden, false);
-  assert.equal(dom.selectPanelMode.value, 'cpa');
+  assert.equal(dom.selectPanelMode.value, 'sub2api');
   assert.equal(dom.selectPanelMode.disabled, true);
+  assert.equal(dom.contributionModeBadge.textContent, 'SUB2API');
   assert.equal(dom.btnOpenAccountRecords.disabled, true);
   assert.equal(dom.contributionOauthStatus.textContent, '\u672a\u751f\u6210\u767b\u5f55\u5730\u5740');
   assert.equal(dom.contributionCallbackStatus.textContent, '\u7b49\u5f85\u56de\u8c03');
@@ -457,7 +521,7 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   assert.equal(statusState.contributionStatus, 'processing');
   assert.equal(dom.contributionOauthStatus.textContent, '\u5df2\u63d0\u4ea4\u56de\u8c03');
   assert.equal(dom.contributionCallbackStatus.textContent, '\u5df2\u63d0\u4ea4\u56de\u8c03');
-  assert.equal(dom.contributionModeSummary.textContent, '\u5df2\u63d0\u4ea4\u56de\u8c03\uff0c\u7b49\u5f85 CPA \u786e\u8ba4');
+  assert.equal(dom.contributionModeSummary.textContent, '\u5df2\u63d0\u4ea4\u56de\u8c03\uff0c\u7b49\u5f85\u670d\u52a1\u7aef\u786e\u8ba4');
 
   dom.btnOpenContributionUpload.listeners.click();
   assert.deepStrictEqual(openedUrls, ['https://apikey.qzz.io', 'https://apikey.qzz.io/upload']);
@@ -480,7 +544,9 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   blocked = true;
   latestState = {
     contributionMode: true,
-    panelMode: 'cpa',
+    panelMode: 'sub2api',
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'codex号池',
     contributionNickname: '贡献者昵称',
     contributionQq: '123456',
     contributionSessionId: 'session-002',
@@ -491,6 +557,8 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
     contributionCallbackMessage: '\u7b49\u5f85\u56de\u8c03',
   };
   manager.render();
+  assert.equal(dom.selectPanelMode.value, 'sub2api');
+  assert.equal(dom.contributionModeBadge.textContent, 'SUB2API');
   assert.equal(dom.btnExitContributionMode.disabled, true);
   manager.stopPolling();
 });

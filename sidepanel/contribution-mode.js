@@ -1,7 +1,10 @@
-(function attachSidepanelContributionMode(globalScope) {
-  const ACTIVE_STATUSES = new Set(['started', 'waiting', 'processing']);
-  const FINAL_STATUSES = new Set(['auto_approved', 'auto_rejected', 'manual_review_required', 'expired', 'error']);
-  const DEFAULT_COPY = '当前账号将用于支持项目维护。扩展会自动申请贡献登录地址并持续跟踪授权状态；如检测到回调地址，会自动提交，并继续等待 CPA 最终确认。';
+  (function attachSidepanelContributionMode(globalScope) {
+    const ACTIVE_STATUSES = new Set(['started', 'waiting', 'processing']);
+    const FINAL_STATUSES = new Set(['auto_approved', 'auto_rejected', 'expired', 'error']);
+    const DEFAULT_COPY = '当前账号将用于支持项目维护。扩展会自动申请贡献登录地址并持续跟踪授权状态；如检测到回调地址，会自动提交，并继续等待服务端确认。';
+    const CONTRIBUTION_SOURCE_CPA = 'cpa';
+    const CONTRIBUTION_SOURCE_SUB2API = 'sub2api';
+    const CONTRIBUTION_SUB2API_DEFAULT_GROUP_NAME = 'codex号池';
 
   function createContributionModeManager(context = {}) {
     const {
@@ -64,6 +67,21 @@
         default:
           return '';
       }
+    }
+
+    function normalizeContributionSource(value = '') {
+      const normalized = normalizeString(value).toLowerCase();
+      return normalized === CONTRIBUTION_SOURCE_SUB2API
+        ? CONTRIBUTION_SOURCE_SUB2API
+        : CONTRIBUTION_SOURCE_CPA;
+    }
+
+    function getContributionSource(currentState = getLatestState()) {
+      return normalizeContributionSource(currentState.contributionSource || currentState.panelMode);
+    }
+
+    function getContributionSourceLabel(currentState = getLatestState()) {
+      return getContributionSource(currentState) === CONTRIBUTION_SOURCE_SUB2API ? 'SUB2API' : 'CPA';
     }
 
     function isContributionModeEnabled(currentState = getLatestState()) {
@@ -140,7 +158,7 @@
       if (status === 'waiting') {
         return '等待提交回调';
       }
-      if (status === 'processing' || status === 'auto_approved' || status === 'auto_rejected' || status === 'manual_review_required') {
+      if (status === 'processing' || status === 'auto_approved' || status === 'auto_rejected') {
         return status === 'processing' ? '已提交回调' : '授权已结束';
       }
       if (status === 'expired' || status === 'error') {
@@ -173,7 +191,15 @@
     }
 
     function getSummaryText(currentState = getLatestState()) {
-      return normalizeString(currentState.contributionStatusMessage) || DEFAULT_COPY;
+      const statusMessage = normalizeString(currentState.contributionStatusMessage);
+      if (statusMessage) {
+        return statusMessage;
+      }
+      if (getContributionSource(currentState) === CONTRIBUTION_SOURCE_SUB2API) {
+        const groupName = normalizeString(currentState.contributionTargetGroupName) || CONTRIBUTION_SUB2API_DEFAULT_GROUP_NAME;
+        return `当前账号将用于支持项目维护。贡献会通过 SUB2API 完成，并固定写入 ${groupName} 分组；如检测到回调地址，扩展会自动提交并等待服务端确认。`;
+      }
+      return DEFAULT_COPY;
     }
 
     function getContributionPortalPageUrl() {
@@ -310,9 +336,10 @@
       const enabled = isContributionModeEnabled(currentState);
       const blocked = isModeSwitchBlocked();
       const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+      const sourceLabel = getContributionSourceLabel(currentState);
 
       if (enabled && dom.selectPanelMode) {
-        dom.selectPanelMode.value = 'cpa';
+        dom.selectPanelMode.value = getContributionSource(currentState);
       }
 
       helpers.updatePanelModeUI?.();
@@ -322,7 +349,13 @@
         dom.contributionModePanel.hidden = !enabled;
       }
       if (dom.contributionModeText) {
-        dom.contributionModeText.textContent = DEFAULT_COPY;
+        dom.contributionModeText.textContent = getSummaryText({
+          contributionSource: currentState.contributionSource,
+          contributionTargetGroupName: currentState.contributionTargetGroupName,
+        });
+      }
+      if (dom.contributionModeBadge) {
+        dom.contributionModeBadge.textContent = enabled ? sourceLabel : '';
       }
       if (dom.inputContributionNickname && activeElement !== dom.inputContributionNickname) {
         const nextNickname = normalizeString(currentState.contributionNickname);

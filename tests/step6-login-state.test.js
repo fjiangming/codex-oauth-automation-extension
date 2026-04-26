@@ -96,6 +96,10 @@ function findOneTimeCodeLoginTrigger() {
   return ${JSON.stringify(overrides.switchTrigger || null)};
 }
 
+function findLoginEntryTrigger() {
+  return ${JSON.stringify(overrides.loginEntryTrigger || null)};
+}
+
 function getLoginSubmitButton() {
   return ${JSON.stringify(overrides.submitButton || null)};
 }
@@ -215,17 +219,29 @@ return {
     consentReady: true,
   });
 
+  const inspected = api.inspectLoginAuthState();
+  assert.strictEqual(inspected.state, 'oauth_consent_page');
+
   const snapshot = api.normalizeStep6Snapshot({
     state: 'oauth_consent_page',
     url: 'https://auth.openai.com/authorize',
   });
 
-  assert.strictEqual(snapshot.state, 'unknown', '第六步应忽略 oauth_consent_page 状态');
+  assert.strictEqual(snapshot.state, 'oauth_consent_page', '第六步应保留 oauth_consent_page 状态');
+}
+
+{
+  const api = createApi({
+    loginEntryTrigger: { id: 'continue-email' },
+  });
+
+  const snapshot = api.inspectLoginAuthState();
+  assert.strictEqual(snapshot.state, 'entry_page');
 }
 
 assert.ok(
-  !extractFunction('inspectLoginAuthState').includes("state: 'oauth_consent_page'"),
-  'inspectLoginAuthState 不应再产出 oauth_consent_page 状态'
+  extractFunction('inspectLoginAuthState').includes("state: 'oauth_consent_page'"),
+  'inspectLoginAuthState 应产出 oauth_consent_page 状态'
 );
 
 console.log('step6 login state tests passed');

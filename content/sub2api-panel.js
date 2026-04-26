@@ -1,4 +1,4 @@
-// content/sub2api-panel.js — 页内脚本：SUB2API 后台（步骤 1、9）
+// content/sub2api-panel.js — 页内脚本：SUB2API 后台（OAuth 生成与回调提交）
 
 console.log('[MultiPage:sub2api-panel] Content script loaded on', location.href);
 
@@ -68,7 +68,9 @@ async function handleStep(step, payload = {}) {
     case 1:
       return step1_generateOpenAiAuthUrl(payload);
     case 10:
-      return step9_submitOpenAiCallback(payload);
+    case 12:
+    case 13:
+      return step9_submitOpenAiCallback({ ...(payload || {}), visibleStep: step });
     default:
       throw new Error(`sub2api-panel.js 不处理步骤 ${step}`);
   }
@@ -501,15 +503,13 @@ async function step1_generateOpenAiAuthUrl(payload = {}, options = {}) {
 }
 
 async function step9_submitOpenAiCallback(payload = {}) {
+  const visibleStep = Number(payload?.visibleStep) || 10;
   const callback = parseLocalhostCallback(payload.localhostUrl || '');
   const backgroundState = await getBackgroundState();
   const flowEmail = String(backgroundState.email || '').trim();
 
   const sessionId = String(payload.sub2apiSessionId || backgroundState.sub2apiSessionId || '').trim();
   const expectedState = String(payload.sub2apiOAuthState || backgroundState.sub2apiOAuthState || '').trim();
-  const accountName = flowEmail
-    || String(payload.sub2apiDraftName || backgroundState.sub2apiDraftName || '').trim()
-    || buildDraftAccountName(payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME);
 
   const { origin, token } = await loginSub2Api(payload);
   const proxyPreference = resolveSub2ApiProxyPreference(payload, backgroundState);
@@ -528,11 +528,11 @@ async function step9_submitOpenAiCallback(payload = {}) {
     throw new Error('本次 localhost 回调中的 state 与步骤 1 生成的 state 不一致，请重新执行步骤 1。');
   }
 
-  log('步骤 10：正在向 SUB2API 交换 OpenAI 授权码...');
+  log(`步骤 ${visibleStep}：正在向 SUB2API 交换 OpenAI 授权码...`);
   if (proxy) {
-    log(`步骤 10：使用 SUB2API 默认代理 ${buildProxyDisplayName(proxy)}。`);
+    log(`步骤 ${visibleStep}：使用 SUB2API 默认代理 ${buildProxyDisplayName(proxy)}。`);
   } else {
-    log('步骤 10：未配置 SUB2API 默认代理，本次将不使用代理。');
+    log(`步骤 ${visibleStep}：未配置 SUB2API 默认代理，本次将不使用代理。`);
   }
   const exchangeRequestBody = {
     session_id: sessionId,
@@ -550,10 +550,15 @@ async function step9_submitOpenAiCallback(payload = {}) {
 
   const credentials = buildOpenAiCredentials(exchangeData);
   const extra = buildOpenAiExtra(exchangeData);
+  const resolvedEmail = String(exchangeData?.email || credentials?.email || '').trim();
   const groupId = Number(group.id);
   if (!Number.isFinite(groupId) || groupId <= 0) {
     throw new Error('SUB2API 返回的目标分组 ID 无效。');
   }
+  const accountName = resolvedEmail
+    || flowEmail
+    || String(payload.sub2apiDraftName || backgroundState.sub2apiDraftName || '').trim()
+    || buildDraftAccountName(payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME);
   const createPayload = {
     name: accountName,
     notes: '',
@@ -574,7 +579,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
     createPayload.extra = extra;
   }
 
-  log(`步骤 10：授权码交换成功，正在创建 SUB2API 账号（名称：${accountName}）...`);
+  log(`步骤 ${visibleStep}：授权码交换成功，正在创建 SUB2API 账号（名称：${accountName}）...`);
   const createdAccount = await requestJson(origin, '/api/v1/admin/accounts', {
     method: 'POST',
     token,
@@ -582,8 +587,8 @@ async function step9_submitOpenAiCallback(payload = {}) {
   });
 
   const verifiedStatus = `SUB2API 已创建账号 #${createdAccount?.id || 'unknown'}`;
-  log(`步骤 10：${verifiedStatus}`, 'ok');
-  reportComplete(10, {
+  log(`步骤 ${visibleStep}：${verifiedStatus}`, 'ok');
+  reportComplete(visibleStep, {
     localhostUrl: callback.url,
     verifiedStatus,
   });

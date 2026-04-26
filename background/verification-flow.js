@@ -175,25 +175,32 @@
       return Math.max(0, Math.floor(Number(VERIFICATION_POLL_MAX_ROUNDS) || 1) - 1);
     }
 
-    async function confirmCustomVerificationStepBypass(step) {
+    function getCompletionStep(step, options = {}) {
+      const completionStep = Number(options.completionStep);
+      return Number.isFinite(completionStep) && completionStep > 0 ? completionStep : step;
+    }
+
+    async function confirmCustomVerificationStepBypass(step, options = {}) {
+      const completionStep = getCompletionStep(step, options);
+      const promptStep = getCompletionStep(step, { completionStep: options.promptStep ?? completionStep });
       const verificationLabel = getVerificationCodeLabel(step);
-      await addLog(`步骤 ${step}：当前为自定义邮箱模式，请手动在页面中输入${verificationLabel}验证码并进入下一页面。`, 'warn');
+      await addLog(`步骤 ${completionStep}：当前为自定义邮箱模式，请手动在页面中输入${verificationLabel}验证码并进入下一页面。`, 'warn');
 
       let response = null;
       try {
-        response = await confirmCustomVerificationStepBypassRequest(step);
+        response = await confirmCustomVerificationStepBypassRequest(promptStep);
       } catch {
-        throw new Error(`步骤 ${step}：无法打开确认弹窗，请先保持侧边栏打开后重试。`);
+        throw new Error(`步骤 ${completionStep}：无法打开确认弹窗，请先保持侧边栏打开后重试。`);
       }
 
       if (response?.error) {
         throw new Error(response.error);
       }
       if (step === 8 && response?.addPhoneDetected) {
-        throw new Error('步骤 8：验证码提交后页面进入手机号页面，当前流程无法继续自动授权。 URL: https://auth.openai.com/add-phone');
+        throw new Error(`步骤 ${completionStep}：验证码提交后页面进入手机号页面，当前流程无法继续自动授权。 URL: https://auth.openai.com/add-phone`);
       }
       if (!response?.confirmed) {
-        throw new Error(`步骤 ${step}：已取消手动${verificationLabel}验证码确认。`);
+        throw new Error(`步骤 ${completionStep}：已取消手动${verificationLabel}验证码确认。`);
       }
 
       await setState({
@@ -201,8 +208,8 @@
         signupVerificationRequestedAt: null,
         loginVerificationRequestedAt: null,
       });
-      await deps.setStepStatus(step, 'skipped');
-      await addLog(`步骤 ${step}：已确认手动完成${verificationLabel}验证码输入，当前步骤已跳过。`, 'warn');
+      await deps.setStepStatus(completionStep, 'skipped');
+      await addLog(`步骤 ${completionStep}：已确认手动完成${verificationLabel}验证码输入，当前步骤已跳过。`, 'warn');
     }
 
     function getVerificationPollPayload(step, state, overrides = {}) {
@@ -781,6 +788,7 @@
     }
 
     async function resolveVerificationStep(step, state, mail, options = {}) {
+      const completionStep = getCompletionStep(step, options);
       const stateKey = getVerificationCodeStateKey(step);
       const rejectedCodes = new Set();
       const hotmailPollConfig = mail.provider === HOTMAIL_PROVIDER
@@ -918,7 +926,7 @@
             [stateKey]: result.code,
           });
 
-          await completeStepFromBackground(step, {
+          await completeStepFromBackground(completionStep, {
             emailTimestamp: result.emailTimestamp,
             code: result.code,
             phoneVerificationRequired: Boolean(submitResult.addPhonePage),

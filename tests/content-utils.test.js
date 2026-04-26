@@ -80,3 +80,15 @@ return { detectScriptSource };
     'mail-163'
   );
 });
+
+test('shouldReportReadyForFrame suppresses noisy plus checkout child frame ready logs', () => {
+  const bundle = [extractFunction('shouldReportReadyForFrame')].join('\n');
+  const api = new Function(`
+${bundle}
+return { shouldReportReadyForFrame };
+`)();
+
+  assert.equal(api.shouldReportReadyForFrame('plus-checkout', true), false);
+  assert.equal(api.shouldReportReadyForFrame('plus-checkout', false), true);
+  assert.equal(api.shouldReportReadyForFrame('paypal-flow', true), true);
+});

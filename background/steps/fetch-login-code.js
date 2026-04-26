@@ -31,25 +31,34 @@
       throwIfStopped,
     } = deps;
 
-    async function getStep8ReadyTimeoutMs(actionLabel, expectedOauthUrl = '') {
+    function getVisibleStep(state, fallback = 8) {
+      const visibleStep = Math.floor(Number(state?.visibleStep) || 0);
+      return visibleStep > 0 ? visibleStep : fallback;
+    }
+
+    function getAuthLoginStepForVisibleStep(visibleStep) {
+      return visibleStep >= 11 ? 10 : 7;
+    }
+
+    async function getStep8ReadyTimeoutMs(actionLabel, expectedOauthUrl = '', visibleStep = 8) {
       if (typeof getOAuthFlowStepTimeoutMs !== 'function') {
         return 15000;
       }
 
       return getOAuthFlowStepTimeoutMs(15000, {
-        step: 8,
+        step: visibleStep,
         actionLabel,
         oauthUrl: expectedOauthUrl,
       });
     }
 
-    function getStep8RemainingTimeResolver(expectedOauthUrl = '') {
+    function getStep8RemainingTimeResolver(expectedOauthUrl = '', visibleStep = 8) {
       if (typeof getOAuthFlowRemainingMs !== 'function') {
         return undefined;
       }
 
       return async (details = {}) => getOAuthFlowRemainingMs({
-        step: 8,
+        step: visibleStep,
         actionLabel: details.actionLabel || '登录验证码流程',
         oauthUrl: expectedOauthUrl,
       });
@@ -96,6 +105,7 @@
     }
 
     async function runStep8Attempt(state) {
+      const visibleStep = getVisibleStep(state, 8);
       const mail = getMailConfig(state);
       if (mail.error) throw new Error(mail.error);
 
@@ -110,14 +120,16 @@
         await chrome.tabs.update(authTabId, { active: true });
       } else {
         if (!state.oauthUrl) {
-          throw new Error('缺少登录用 OAuth 链接，请先完成步骤 7。');
+          throw new Error(`缺少登录用 OAuth 链接，请先完成步骤 ${getAuthLoginStepForVisibleStep(visibleStep)}。`);
         }
         await reuseOrCreateTab('signup-page', state.oauthUrl);
       }
 
       throwIfStopped();
       const pageState = await ensureStep8VerificationPageReady({
-        timeoutMs: await getStep8ReadyTimeoutMs('确认登录验证码页已就绪', state?.oauthUrl || ''),
+        visibleStep,
+        authLoginStep: getAuthLoginStepForVisibleStep(visibleStep),
+        timeoutMs: await getStep8ReadyTimeoutMs('确认登录验证码页已就绪', state?.oauthUrl || '', visibleStep),
       });
       const shouldCompareVerificationEmail = mail.provider !== '2925';
       const displayedVerificationEmail = shouldCompareVerificationEmail
@@ -131,22 +143,25 @@
         step8VerificationTargetEmail: displayedVerificationEmail || '',
       });
 
-      await addLog('步骤 8：登录验证码页面已就绪，开始获取验证码。', 'info');
+      await addLog(`步骤 ${visibleStep}：登录验证码页面已就绪，开始获取验证码。`, 'info');
       if (shouldCompareVerificationEmail && displayedVerificationEmail) {
-        await addLog(`步骤 8：已固定当前验证码页显示邮箱 ${displayedVerificationEmail} 作为后续匹配目标。`, 'info');
+        await addLog(`步骤 ${visibleStep}：已固定当前验证码页显示邮箱 ${displayedVerificationEmail} 作为后续匹配目标。`, 'info');
       }
 
       if (shouldUseCustomRegistrationEmail(state)) {
-        await confirmCustomVerificationStepBypass(8);
+        await confirmCustomVerificationStepBypass(8, {
+          completionStep: visibleStep,
+          promptStep: visibleStep,
+        });
         return;
       }
 
       if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
-        await addLog('步骤 8：正在确认 iCloud 邮箱登录态...', 'info');
+        await addLog(`步骤 ${visibleStep}：正在确认 iCloud 邮箱登录态...`, 'info');
         await ensureIcloudMailSession({
           state,
           step: 8,
-          actionLabel: '步骤 8：确认 iCloud 邮箱登录态',
+          actionLabel: `步骤 ${visibleStep}：确认 iCloud 邮箱登录态`,
         });
       }
 
@@ -156,22 +171,22 @@
         || mail.provider === LUCKMAIL_PROVIDER
         || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
       ) {
-        await addLog(`步骤 8：正在通过 ${mail.label} 轮询验证码...`);
+        await addLog(`步骤 ${visibleStep}：正在通过 ${mail.label} 轮询验证码...`);
       } else {
-        await addLog(`步骤 8：正在打开${mail.label}...`);
+        await addLog(`步骤 ${visibleStep}：正在打开${mail.label}...`);
         if (mail.provider === '2925' && typeof ensureMail2925MailboxSession === 'function') {
           await ensureMail2925MailboxSession({
             accountId: state.currentMail2925AccountId || null,
             forceRelogin: false,
             allowLoginWhenOnLoginPage: Boolean(state?.mail2925UseAccountPool),
             expectedMailboxEmail: getExpectedMail2925MailboxEmail(state),
-            actionLabel: 'Step 8: ensure 2925 mailbox session',
+            actionLabel: `Step ${visibleStep}: ensure 2925 mailbox session`,
           });
         } else {
           await focusOrOpenMailTab(mail);
         }
         if (mail.provider === '2925') {
-          await addLog(`步骤 8：将直接使用当前已登录的 ${mail.label} 轮询验证码。`, 'info');
+          await addLog(`步骤 ${visibleStep}：将直接使用当前已登录的 ${mail.label} 轮询验证码。`, 'info');
         }
       }
 
@@ -179,10 +194,11 @@
         ...state,
         step8VerificationTargetEmail: displayedVerificationEmail || '',
       }, mail, {
+        completionStep: visibleStep,
         filterAfterTimestamp: verificationFilterAfterTimestamp,
         sessionKey: verificationSessionKey,
         disableTimeBudgetCap: mail.provider === '2925',
-        getRemainingTimeMs: getStep8RemainingTimeResolver(state?.oauthUrl || ''),
+        getRemainingTimeMs: getStep8RemainingTimeResolver(state?.oauthUrl || '', visibleStep),
         requestFreshCodeFirst: false,
         targetEmail: fixedTargetEmail,
         resendIntervalMs: (mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
@@ -206,6 +222,8 @@
           await runStep8Attempt(currentState);
           return;
         } catch (err) {
+          const visibleStep = getVisibleStep(currentState, 8);
+          const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
           if (!isVerificationMailPollingError(err) && !isStep8RestartStep7Error(err)) {
             throw err;
           }
@@ -218,26 +236,27 @@
           mailPollingAttempt += 1;
           await addLog(
             isStep8RestartStep7Error(err)
-              ? `步骤 8：检测到认证页进入重试/超时报错状态，准备从步骤 7 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`
-              : `步骤 8：检测到邮箱轮询类失败，准备从步骤 7 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`,
+              ? `步骤 ${visibleStep}：检测到认证页进入重试/超时报错状态，准备从步骤 ${authLoginStep} 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`
+              : `步骤 ${visibleStep}：检测到邮箱轮询类失败，准备从步骤 ${authLoginStep} 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`,
             'warn'
           );
           await rerunStep7ForStep8Recovery({
             logMessage: isStep8RestartStep7Error(err)
-              ? '步骤 8：认证页进入重试/超时报错状态，正在回到步骤 7 重新发起登录流程...'
-              : '步骤 8：正在回到步骤 7，重新发起登录验证码流程...',
+              ? `步骤 ${visibleStep}：认证页进入重试/超时报错状态，正在回到步骤 ${authLoginStep} 重新发起登录流程...`
+              : `步骤 ${visibleStep}：正在回到步骤 ${authLoginStep}，重新发起登录验证码流程...`,
           });
           currentState = await getState();
         }
       }
 
+      const visibleStep = getVisibleStep(currentState, 8);
       if (lastMailPollingError) {
         throw new Error(
-          `步骤 8：登录验证码流程在 ${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS} 轮邮箱轮询恢复后仍未成功。最后一次原因：${lastMailPollingError.message}`
+          `步骤 ${visibleStep}：登录验证码流程在 ${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS} 轮邮箱轮询恢复后仍未成功。最后一次原因：${lastMailPollingError.message}`
         );
       }
 
-      throw new Error('步骤 8：登录验证码流程未成功完成。');
+      throw new Error(`步骤 ${visibleStep}：登录验证码流程未成功完成。`);
     }
 
     return { executeStep8 };

@@ -87,6 +87,8 @@ test('account run history helper upgrades old records, keeps stopped items and s
       totalRuns: 10,
       attemptRun: 3,
     },
+    plusModeEnabled: false,
+    contributionMode: false,
   });
 
   const appended = await helpers.appendAccountRunRecord('step8_failed', null, '步骤 8：认证页进入了手机号页面，当前不是 OAuth 同意页，无法继续自动授权。');
@@ -136,6 +138,39 @@ test('account run history helper upgrades old records, keeps stopped items and s
   });
   assert.equal(normalizedStoppedRecord.failureLabel, '步骤 7 停止');
   assert.equal(normalizedStoppedRecord.failedStep, 7);
+});
+
+test('account run history records preserve Plus and contribution mode flags', () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: (value) => String(value || '').trim(),
+  });
+
+  const record = helpers.buildAccountRunHistoryRecord({
+    email: 'plus@example.com',
+    password: 'secret',
+    plusModeEnabled: true,
+    contributionMode: true,
+  }, 'success');
+
+  assert.equal(record.plusModeEnabled, true);
+  assert.equal(record.contributionMode, true);
+
+  const normalized = helpers.normalizeAccountRunHistoryRecord({
+    email: 'plus@example.com',
+    password: 'secret',
+    finalStatus: 'success',
+    plusModeEnabled: true,
+    contributionMode: true,
+  });
+
+  assert.equal(normalized.plusModeEnabled, true);
+  assert.equal(normalized.contributionMode, true);
 });
 
 test('account run history helper clears persisted records and syncs full snapshot payload to local helper', async () => {

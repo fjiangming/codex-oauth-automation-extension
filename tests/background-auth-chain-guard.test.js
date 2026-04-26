@@ -118,6 +118,9 @@ function isRetryableContentScriptTransportError() {
   return false;
 }
 const stepRegistry = {
+  getStepDefinition(step) {
+    return { id: step, key: 'test-step' };
+  },
   async executeStep(step) {
     events.registryCalls.push(step);
     if (step === 8) {
@@ -127,6 +130,12 @@ const stepRegistry = {
     }
   },
 };
+function getStepRegistryForState() {
+  return stepRegistry;
+}
+function getStepDefinitionForState(step) {
+  return { id: step, key: 'test-step' };
+}
 
 ${extractFunction('isStopError')}
 ${extractFunction('throwIfStopped')}
@@ -212,10 +221,19 @@ function isRetryableContentScriptTransportError() {
   return false;
 }
 const stepRegistry = {
+  getStepDefinition(step) {
+    return { id: step, key: 'test-step' };
+  },
   async executeStep() {
     throw new Error('BROWSER_SWITCH_REQUIRED::请更换浏览器进行注册登录。');
   },
 };
+function getStepRegistryForState() {
+  return stepRegistry;
+}
+function getStepDefinitionForState(step) {
+  return { id: step, key: 'test-step' };
+}
 
 ${extractFunction('isStopError')}
 ${extractFunction('throwIfStopped')}

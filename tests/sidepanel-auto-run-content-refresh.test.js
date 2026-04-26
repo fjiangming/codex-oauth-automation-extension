@@ -48,12 +48,24 @@ function extractFunction(name) {
   return sidepanelSource.slice(start, end);
 }
 
-function createApi({ refreshImpl, confirmImpl, dismissImpl } = {}) {
+function createApi({
+  refreshImpl,
+  confirmImpl,
+  dismissImpl,
+  runCount = 3,
+  plusModeEnabled = false,
+  plusRiskEnabled = false,
+  plusRiskConfirmed = true,
+  plusRiskDismissPrompt = false,
+  plusContributionImpl,
+} = {}) {
   const bundle = extractFunction('startAutoRunFromCurrentSettings');
 
   return new Function(`
 const events = [];
 const latestState = { contributionMode: false };
+const currentPlusModeEnabled = ${JSON.stringify(Boolean(plusModeEnabled))};
+const inputPlusModeEnabled = { checked: ${JSON.stringify(Boolean(plusModeEnabled))} };
 const inputAutoSkipFailures = { checked: false };
 const inputContributionNickname = { value: 'tester' };
 const inputContributionQq = { value: '123456' };
@@ -75,7 +87,7 @@ const console = {
     events.push({ type: 'warn', args });
   },
 };
-function getRunCountValue() { return 3; }
+function getRunCountValue() { return ${Math.max(1, Number(runCount) || 1)}; }
 function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
 function shouldOfferAutoModeChoice() { return false; }
 async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
@@ -85,6 +97,23 @@ function shouldWarnAutoRunFallbackRisk() { return false; }
 function isAutoRunFallbackRiskPromptDismissed() { return false; }
 async function openAutoRunFallbackRiskConfirmModal() { throw new Error('should not be called'); }
 function setAutoRunFallbackRiskPromptDismissed() {}
+function shouldWarnPlusAutoRunRisk(totalRuns, plusModeEnabled) {
+  return ${JSON.stringify(Boolean(plusRiskEnabled))} && Boolean(plusModeEnabled) && Number(totalRuns) > 3;
+}
+function isAutoRunPlusRiskPromptDismissed() { return false; }
+async function openPlusAutoRunRiskConfirmModal(totalRuns) {
+  events.push({ type: 'plus-risk-modal', totalRuns });
+  return {
+    confirmed: ${JSON.stringify(Boolean(plusRiskConfirmed))},
+    dismissPrompt: ${JSON.stringify(Boolean(plusRiskDismissPrompt))},
+  };
+}
+function setAutoRunPlusRiskPromptDismissed(dismissed) {
+  events.push({ type: 'plus-risk-dismiss', dismissed });
+}
+async function maybeShowPlusContributionPromptBeforeAutoRun(plusModeEnabled) {
+  ${plusContributionImpl ? 'return (' + plusContributionImpl + ')(plusModeEnabled, events);' : 'return true;'}
+}
 function normalizeAutoDelayMinutes(value) { return Number(value) || 30; }
 async function refreshContributionContentHint() {
   events.push({ type: 'refresh' });
@@ -154,4 +183,59 @@ test('startAutoRunFromCurrentSettings aborts when contribution update confirmati
     api.getEvents().map((entry) => entry.type),
     ['refresh', 'confirm-check']
   );
+});
+
+test('startAutoRunFromCurrentSettings shows Plus risk warning before starting more than 3 runs', async () => {
+  const api = createApi({
+    runCount: 4,
+    plusModeEnabled: true,
+    plusRiskEnabled: true,
+  });
+
+  const result = await api.startAutoRunFromCurrentSettings();
+  const events = api.getEvents();
+
+  assert.equal(result, true);
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ['refresh', 'confirm-check', 'plus-risk-modal', 'send']
+  );
+  assert.equal(events[2].totalRuns, 4);
+  assert.equal(events[3].message.payload.totalRuns, 4);
+});
+
+test('startAutoRunFromCurrentSettings aborts when Plus risk warning is declined', async () => {
+  const api = createApi({
+    runCount: 4,
+    plusModeEnabled: true,
+    plusRiskEnabled: true,
+    plusRiskConfirmed: false,
+  });
+
+  const result = await api.startAutoRunFromCurrentSettings();
+
+  assert.equal(result, false);
+  assert.deepEqual(
+    api.getEvents().map((entry) => entry.type),
+    ['refresh', 'confirm-check', 'plus-risk-modal']
+  );
+});
+
+test('startAutoRunFromCurrentSettings aborts when Plus contribution prompt opens contribution page', async () => {
+  const api = createApi({
+    plusModeEnabled: true,
+    plusContributionImpl: `async (plusModeEnabled, events) => {
+      events.push({ type: 'plus-contribution-modal', plusModeEnabled });
+      return false;
+    }`,
+  });
+
+  const result = await api.startAutoRunFromCurrentSettings();
+
+  assert.equal(result, false);
+  assert.deepEqual(
+    api.getEvents().map((entry) => entry.type),
+    ['refresh', 'confirm-check', 'plus-contribution-modal']
+  );
+  assert.equal(api.getEvents()[2].plusModeEnabled, true);
 });

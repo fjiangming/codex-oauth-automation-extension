@@ -216,3 +216,43 @@ return {
   assert.equal(modalPayload.actions[1].id, 'add_phone');
   assert.equal(modalPayload.actions[1].label, '出现手机号验证');
 });
+
+test('sidepanel custom verification dialog exposes add-phone action for Plus login code step', async () => {
+  const bundle = [
+    extractFunction('getCustomVerificationPromptCopy'),
+    extractFunction('openCustomVerificationConfirmDialog'),
+  ].join('\n');
+
+  const api = new Function(`
+let openActionModalPayload = null;
+
+async function openActionModal(options) {
+  openActionModalPayload = options;
+  return options.buildResult('add_phone');
+}
+
+async function openConfirmModal() {
+  throw new Error('Plus login code step should use action modal');
+}
+
+${bundle}
+
+return {
+  getCustomVerificationPromptCopy,
+  openCustomVerificationConfirmDialog,
+  getOpenActionModalPayload: () => openActionModalPayload,
+};
+`)();
+
+  const prompt = api.getCustomVerificationPromptCopy(11);
+  assert.equal(prompt.phoneActionLabel, '出现手机号验证');
+
+  const result = await api.openCustomVerificationConfirmDialog(11);
+  assert.deepEqual(result, {
+    confirmed: false,
+    addPhoneDetected: true,
+  });
+
+  const modalPayload = api.getOpenActionModalPayload();
+  assert.equal(modalPayload.actions[1].id, 'add_phone');
+});

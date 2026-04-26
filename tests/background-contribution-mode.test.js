@@ -84,14 +84,16 @@ test('contribution oauth module exposes a factory', () => {
   assert.equal(Array.isArray(api?.RUNTIME_KEYS), true);
 });
 
-test('buildContributionModeState preserves active contribution runtime while forcing CPA mode', () => {
+test('buildContributionModeState preserves active contribution runtime while keeping contribution on sub2api', () => {
   const bundle = extractFunction(backgroundSource, 'buildContributionModeState');
 
-  const api = new Function(`
+const api = new Function(`
 const DEFAULT_STATE = { panelMode: 'cpa' };
 const CONTRIBUTION_RUNTIME_DEFAULTS = {
   contributionMode: false,
   contributionModeExpected: false,
+  contributionSource: 'sub2api',
+  contributionTargetGroupName: 'codex号池',
   contributionNickname: '',
   contributionQq: '',
   contributionSessionId: '',
@@ -107,6 +109,35 @@ const CONTRIBUTION_RUNTIME_DEFAULTS = {
   contributionAuthTabId: 0,
 };
 const CONTRIBUTION_RUNTIME_KEYS = Object.keys(CONTRIBUTION_RUNTIME_DEFAULTS);
+function isPlusModeState(state = {}) { return Boolean(state?.plusModeEnabled); }
+function normalizeContributionModeSource(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'sub2api' ? 'sub2api' : 'cpa';
+}
+function resolveContributionModeRoutingState(state = {}) {
+  const currentStatus = String(state?.contributionStatus || '').trim().toLowerCase();
+  const currentSource = normalizeContributionModeSource(state?.contributionSource);
+  const hasActiveSession = Boolean(
+    String(state?.contributionSessionId || '').trim()
+    && currentStatus
+    && !['auto_approved', 'auto_rejected', 'expired', 'error'].includes(currentStatus)
+  );
+  if (hasActiveSession) {
+    return {
+      source: currentSource,
+      targetGroupName: currentSource === 'sub2api'
+        ? (String(state?.contributionTargetGroupName || '').trim() || 'codex号池')
+        : '',
+    };
+  }
+  const source = 'sub2api';
+  return {
+    source,
+    targetGroupName: isPlusModeState(state)
+      ? 'openai-plus'
+      : (String(state?.contributionTargetGroupName || '').trim() || 'codex号池'),
+  };
+}
 ${bundle}
 return { buildContributionModeState };
 `)();
@@ -125,6 +156,8 @@ return { buildContributionModeState };
     {
       contributionMode: true,
       contributionModeExpected: true,
+      contributionSource: 'sub2api',
+      contributionTargetGroupName: 'codex号池',
       contributionNickname: '',
       contributionQq: '',
       contributionSessionId: 'session-001',
@@ -138,7 +171,7 @@ return { buildContributionModeState };
       contributionCallbackMessage: '',
       contributionAuthOpenedAt: 0,
       contributionAuthTabId: 0,
-      panelMode: 'cpa',
+      panelMode: 'sub2api',
       customPassword: '',
       accountRunHistoryTextEnabled: false,
     }
@@ -157,6 +190,8 @@ return { buildContributionModeState };
     {
       contributionMode: false,
       contributionModeExpected: false,
+      contributionSource: 'sub2api',
+      contributionTargetGroupName: 'codex号池',
       contributionNickname: '',
       contributionQq: '',
       contributionSessionId: '',
@@ -173,6 +208,37 @@ return { buildContributionModeState };
       panelMode: 'sub2api',
       customPassword: 'Secret123!',
       accountRunHistoryTextEnabled: true,
+    }
+  );
+
+  assert.deepStrictEqual(
+    api.buildContributionModeState(true, {
+      panelMode: 'cpa',
+      plusModeEnabled: true,
+      customPassword: 'Secret123!',
+      accountRunHistoryTextEnabled: true,
+    }, {}),
+    {
+      contributionMode: true,
+      contributionModeExpected: true,
+      contributionSource: 'sub2api',
+      contributionTargetGroupName: 'openai-plus',
+      contributionNickname: '',
+      contributionQq: '',
+      contributionSessionId: '',
+      contributionAuthUrl: '',
+      contributionAuthState: '',
+      contributionCallbackUrl: '',
+      contributionStatus: '',
+      contributionStatusMessage: '',
+      contributionLastPollAt: 0,
+      contributionCallbackStatus: 'idle',
+      contributionCallbackMessage: '',
+      contributionAuthOpenedAt: 0,
+      contributionAuthTabId: 0,
+      panelMode: 'sub2api',
+      customPassword: '',
+      accountRunHistoryTextEnabled: false,
     }
   );
 });
@@ -334,6 +400,8 @@ test('contribution oauth manager starts session, opens auth url, submits callbac
   let statusPollCount = 0;
   let currentState = {
     contributionMode: true,
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'codex号池',
     email: 'user@example.com',
     contributionSessionId: '',
     contributionStatus: '',
@@ -424,6 +492,8 @@ test('contribution oauth manager starts session, opens auth url, submits callbac
   assert.match(String(fetchCalls[0].options.body || ''), /"nickname":""/);
   assert.match(String(fetchCalls[0].options.body || ''), /"qq":""/);
   assert.match(String(fetchCalls[0].options.body || ''), /"email":"user@example\.com"/);
+  assert.match(String(fetchCalls[0].options.body || ''), /"source":"sub2api"/);
+  assert.match(String(fetchCalls[0].options.body || ''), /"target_group_name":"codex号池"/);
   assert.match(fetchCalls[1].url, /\/status\?/);
 
   const callbackState = await manager.handleCapturedCallback(
@@ -469,6 +539,78 @@ test('contribution oauth manager accepts localhost callback urls that contain er
     ),
     true
   );
+});
+
+test('contribution oauth manager switches Plus contribution traffic to sub2api openai-plus', async () => {
+  const source = fs.readFileSync('background/contribution-oauth.js', 'utf8');
+  const globalScope = {};
+  const fetchCalls = [];
+  let currentState = {
+    contributionMode: true,
+    plusModeEnabled: true,
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'openai-plus',
+    contributionSessionId: '',
+    contributionStatus: '',
+    contributionCallbackStatus: 'idle',
+  };
+
+  const api = new Function('self', 'fetch', `${source}; return self.MultiPageBackgroundContributionOAuth;`)(
+    globalScope,
+    async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (String(url).endsWith('/start')) {
+        return createMockResponse(true, 200, {
+          ok: true,
+          session_id: 'session-plus-001',
+          state: 'oauth-state-plus-001',
+          source: 'sub2api',
+          target_group_name: 'openai-plus',
+          auth_url: 'https://auth.example.com/oauth?state=oauth-state-plus-001',
+        });
+      }
+      if (String(url).includes('/status?')) {
+        return createMockResponse(true, 200, {
+          ok: true,
+          session_id: 'session-plus-001',
+          status: 'waiting',
+          source: 'sub2api',
+          target_group_name: 'openai-plus',
+        });
+      }
+      return createMockResponse(true, 200, { ok: true });
+    }
+  );
+
+  const manager = api.createContributionOAuthManager({
+    chrome: {
+      tabs: {
+        async create(payload) {
+          return { id: 91, url: payload.url };
+        },
+        async update() {
+          return null;
+        },
+        onUpdated: { addListener() {} },
+      },
+      webNavigation: {
+        onCommitted: { addListener() {} },
+        onHistoryStateUpdated: { addListener() {} },
+      },
+    },
+    getState: async () => currentState,
+    setState: async (updates) => {
+      currentState = { ...currentState, ...updates };
+    },
+    broadcastDataUpdate: (updates) => {
+      currentState = { ...currentState, ...updates };
+    },
+  });
+
+  await manager.startContributionFlow();
+
+  assert.match(String(fetchCalls[0].options.body || ''), /"source":"sub2api"/);
+  assert.match(String(fetchCalls[0].options.body || ''), /"target_group_name":"openai-plus"/);
 });
 
 test('refreshOAuthUrlBeforeStep6 uses contribution oauth session instead of panel bridge in contribution mode', async () => {

@@ -311,7 +311,7 @@
 
       let successfulRuns = roundSummaries.filter((item) => item.status === 'success').length;
       const initialState = await getState();
-      const initialPhase = continueCurrentOnFirstAttempt && getRunningSteps(initialState.stepStatuses).length
+      const initialPhase = continueCurrentOnFirstAttempt && getRunningSteps(initialState.stepStatuses, initialState).length
         ? 'waiting_step'
         : 'running';
       const showResumePosition = continueCurrentOnFirstAttempt || resumeCurrentRun > 1 || resumeAttemptRun > 1;
@@ -351,18 +351,18 @@
 
           if (reuseExistingProgress) {
             let currentState = await getState();
-            if (getRunningSteps(currentState.stepStatuses).length) {
+            if (getRunningSteps(currentState.stepStatuses, currentState).length) {
               currentState = await waitForRunningStepsToFinish({
                 currentRun: targetRun,
                 totalRuns,
                 attemptRun,
               });
             }
-            const resumeStep = getFirstUnfinishedStep(currentState.stepStatuses);
-            if (resumeStep && hasSavedProgress(currentState.stepStatuses)) {
+            const resumeStep = getFirstUnfinishedStep(currentState.stepStatuses, currentState);
+            if (resumeStep && hasSavedProgress(currentState.stepStatuses, currentState)) {
               startStep = resumeStep;
               useExistingProgress = true;
-            } else if (hasSavedProgress(currentState.stepStatuses)) {
+            } else if (hasSavedProgress(currentState.stepStatuses, currentState)) {
               await addLog('检测到当前流程已处理完成，本轮将改为从步骤 1 重新开始。', 'info');
             }
           }
@@ -373,6 +373,9 @@
               vpsUrl: prevState.vpsUrl,
               vpsPassword: prevState.vpsPassword,
               customPassword: prevState.customPassword,
+              plusModeEnabled: prevState.plusModeEnabled,
+              paypalEmail: prevState.paypalEmail,
+              paypalPassword: prevState.paypalPassword,
               autoRunSkipFailures: prevState.autoRunSkipFailures,
               autoRunFallbackThreadIntervalMinutes: prevState.autoRunFallbackThreadIntervalMinutes,
               autoRunDelayEnabled: prevState.autoRunDelayEnabled,

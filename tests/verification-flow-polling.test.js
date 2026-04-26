@@ -833,6 +833,69 @@ test('verification flow uses configured login resend count for step 8', async ()
   assert.equal(pollCalls, 3);
 });
 
+test('verification flow can complete Plus visible login-code step with shared step 8 semantics', async () => {
+  const completed = [];
+  const fillMessages = [];
+
+  const helpers = api.createVerificationFlowHelpers({
+    addLog: async () => {},
+    chrome: { tabs: { update: async () => {} } },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (step, payload) => {
+      completed.push({ step, payload });
+    },
+    confirmCustomVerificationStepBypassRequest: async () => ({ confirmed: true }),
+    getHotmailVerificationPollConfig: () => ({}),
+    getHotmailVerificationRequestTimestamp: () => 0,
+    getState: async () => ({}),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isStopError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    MAIL_2925_VERIFICATION_INTERVAL_MS: 15000,
+    MAIL_2925_VERIFICATION_MAX_ATTEMPTS: 15,
+    pollCloudflareTempEmailVerificationCode: async () => ({}),
+    pollHotmailVerificationCode: async () => ({}),
+    pollLuckmailVerificationCode: async () => ({}),
+    sendToContentScript: async (_source, message) => {
+      if (message.type === 'FILL_CODE') {
+        fillMessages.push(message);
+      }
+      return {};
+    },
+    sendToMailContentScriptResilient: async () => ({ code: '654321', emailTimestamp: 456 }),
+    setState: async () => {},
+    setStepStatus: async () => {},
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+    VERIFICATION_POLL_MAX_ROUNDS: 5,
+  });
+
+  await helpers.resolveVerificationStep(
+    8,
+    { email: 'user@example.com', lastLoginCode: null },
+    { provider: 'qq', label: 'QQ 邮箱' },
+    {
+      completionStep: 11,
+      requestFreshCodeFirst: false,
+      maxResendRequests: 0,
+      resendIntervalMs: 0,
+    }
+  );
+
+  assert.deepStrictEqual(fillMessages.map((message) => message.step), [8]);
+  assert.deepStrictEqual(completed, [
+    {
+      step: 11,
+      payload: {
+        emailTimestamp: 456,
+        code: '654321',
+        phoneVerificationRequired: false,
+      },
+    },
+  ]);
+});
+
 test('verification flow waits during resend cooldown instead of tight-looping', async () => {
   const sleepCalls = [];
   let pollCalls = 0;

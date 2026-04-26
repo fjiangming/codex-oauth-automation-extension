@@ -421,9 +421,20 @@ async function humanPause(min = 250, max = 850) {
   await sleep(duration);
 }
 
-// Auto-report ready on load
-// Skip ready signal from child iframes of mail pages to avoid overwriting the top frame's registration
-const _isMailChildFrame = (SCRIPT_SOURCE === 'qq-mail' || SCRIPT_SOURCE === 'mail-163' || SCRIPT_SOURCE === 'gmail-mail' || SCRIPT_SOURCE === 'mail-2925' || SCRIPT_SOURCE === 'inbucket-mail') && window !== window.top;
-if (!_isMailChildFrame) {
+function shouldReportReadyForFrame(source, isChildFrame) {
+  if (!isChildFrame) return true;
+  return ![
+    'qq-mail',
+    'mail-163',
+    'gmail-mail',
+    'mail-2925',
+    'inbucket-mail',
+    'plus-checkout',
+  ].includes(source);
+}
+
+// Auto-report ready on load. Child frames are probed explicitly by frameId, so
+// they should not overwrite the tab-level registration or spam the side panel.
+if (shouldReportReadyForFrame(SCRIPT_SOURCE, window !== window.top)) {
   reportReady();
 }

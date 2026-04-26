@@ -45,11 +45,15 @@ const bundle = [
   'const AUTO_STEP_DELAY_MIN_ALLOWED_SECONDS = 0;',
   'const AUTO_STEP_DELAY_MAX_ALLOWED_SECONDS = 600;',
   'const PERSISTED_SETTING_DEFAULTS = { autoStepDelaySeconds: null };',
+  "const AUTO_RUN_PRE_EXECUTION_DELAYS_BY_STEP_KEY = new Map([['plus-checkout-create', 20000]]);",
+  'function getStepDefinitionForState(step, state = {}) { return state.definitions?.[step] || null; }',
   extractFunction('normalizeAutoStepDelaySeconds'),
   extractFunction('resolveLegacyAutoStepDelaySeconds'),
+  extractFunction('getStepExecutionKeyForState'),
+  extractFunction('getAutoRunPreExecutionDelayMs'),
 ].join('\n');
 
-const api = new Function(`${bundle}; return { normalizeAutoStepDelaySeconds, resolveLegacyAutoStepDelaySeconds };`)();
+const api = new Function(`${bundle}; return { normalizeAutoStepDelaySeconds, resolveLegacyAutoStepDelaySeconds, getAutoRunPreExecutionDelayMs };`)();
 
 assert.strictEqual(
   api.normalizeAutoStepDelaySeconds(''),
@@ -121,6 +125,26 @@ assert.strictEqual(
   }),
   null,
   'empty legacy settings should migrate to no delay'
+);
+
+assert.strictEqual(
+  api.getAutoRunPreExecutionDelayMs(6, {
+    definitions: {
+      6: { key: 'plus-checkout-create' },
+    },
+  }),
+  20000,
+  'Plus checkout create should wait before step execution'
+);
+
+assert.strictEqual(
+  api.getAutoRunPreExecutionDelayMs(6, {
+    definitions: {
+      6: { key: 'clear-login-cookies' },
+    },
+  }),
+  0,
+  'normal step 6 should not inherit the Plus checkout pre-wait'
 );
 
 console.log('auto step delay tests passed');

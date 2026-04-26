@@ -59,6 +59,8 @@ function createRouter(overrides = {}) {
     getPendingAutoRunTimerPlan: () => null,
     getSourceLabel: () => '',
     getState: async () => overrides.state || { stepStatuses: { 3: 'pending' } },
+    getStepDefinitionForState: overrides.getStepDefinitionForState,
+    getStepIdsForState: overrides.getStepIdsForState,
     getTabId: overrides.getTabId || (async () => null),
     getStopRequested: () => false,
     handleAutoRunLoopUnhandledError: async () => {},
@@ -182,6 +184,49 @@ test('message router skips step 5 when step 4 reports already logged-in transiti
 
   assert.deepStrictEqual(events.stepStatuses, [{ step: 5, status: 'skipped' }]);
   assert.equal(events.logs[0]?.message, '步骤 4：检测到账号已直接进入已登录态，已自动跳过步骤 5。');
+});
+
+test('message router skips login-code step when oauth login lands on consent page', async () => {
+  const stepKeys = {
+    7: 'oauth-login',
+    8: 'fetch-login-code',
+    9: 'confirm-oauth',
+  };
+  const { router, events } = createRouter({
+    state: { stepStatuses: { 7: 'completed', 8: 'pending', 9: 'pending' } },
+    getStepDefinitionForState: (step) => ({ id: step, key: stepKeys[step] || '' }),
+    getStepIdsForState: () => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  });
+
+  await router.handleStepData(7, {
+    skipLoginVerificationStep: true,
+    directOAuthConsentPage: true,
+  });
+
+  assert.deepStrictEqual(events.stepStatuses, [{ step: 8, status: 'skipped' }]);
+  assert.equal(events.logs.some(({ message }) => /OAuth 授权页.*步骤 8/.test(message)), true);
+});
+
+test('message router skips Plus login-code step when oauth login lands on consent page', async () => {
+  const stepKeys = {
+    10: 'oauth-login',
+    11: 'fetch-login-code',
+    12: 'confirm-oauth',
+    13: 'platform-verify',
+  };
+  const { router, events } = createRouter({
+    state: { plusModeEnabled: true, stepStatuses: { 10: 'completed', 11: 'pending', 12: 'pending', 13: 'pending' } },
+    getStepDefinitionForState: (step) => ({ id: step, key: stepKeys[step] || '' }),
+    getStepIdsForState: () => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  });
+
+  await router.handleStepData(10, {
+    skipLoginVerificationStep: true,
+    directOAuthConsentPage: true,
+  });
+
+  assert.deepStrictEqual(events.stepStatuses, [{ step: 11, status: 'skipped' }]);
+  assert.equal(events.logs.some(({ message }) => /OAuth 授权页.*步骤 11/.test(message)), true);
 });
 
 test('message router finalizes step 3 before marking it completed', async () => {

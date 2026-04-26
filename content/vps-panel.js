@@ -86,7 +86,9 @@ if (document.documentElement.getAttribute(VPS_PANEL_LISTENER_SENTINEL) !== '1') 
 async function handleStep(step, payload) {
   switch (step) {
     case 1: return await step1_getOAuthLink(payload);
-    case 10: return await step9_vpsVerify(payload);
+    case 10:
+    case 12:
+      return await step9_vpsVerify({ ...(payload || {}), visibleStep: step });
     default:
       throw new Error(`vps-panel.js 不处理步骤 ${step}`);
   }
@@ -1009,27 +1011,29 @@ async function step1_getOAuthLink(payload, options = {}) {
 // ============================================================
 
 async function step9_vpsVerify(payload) {
-  await ensureOAuthManagementPage(payload?.vpsPassword, 9);
+  const visibleStep = Number(payload?.visibleStep) || 10;
+  const confirmStep = visibleStep >= 13 ? 12 : 9;
+  await ensureOAuthManagementPage(payload?.vpsPassword, confirmStep);
 
   // 优先从 payload 读取 localhostUrl；没有时再回退到全局状态
   let localhostUrl = payload?.localhostUrl;
   if (localhostUrl && !isLocalhostOAuthCallbackUrl(localhostUrl)) {
-    throw new Error('步骤 10 只接受真实的 localhost OAuth 回调地址，请重新执行步骤 9。');
+    throw new Error(`步骤 ${visibleStep} 只接受真实的 localhost OAuth 回调地址，请重新执行步骤 ${confirmStep}。`);
   }
   if (!localhostUrl) {
-    log('步骤 10：payload 中没有 localhostUrl，正在从状态中读取...');
+    log(`步骤 ${visibleStep}：payload 中没有 localhostUrl，正在从状态中读取...`);
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
     localhostUrl = state.localhostUrl;
     if (localhostUrl && !isLocalhostOAuthCallbackUrl(localhostUrl)) {
-      throw new Error('步骤 10 只接受真实的 localhost OAuth 回调地址，请重新执行步骤 9。');
+      throw new Error(`步骤 ${visibleStep} 只接受真实的 localhost OAuth 回调地址，请重新执行步骤 ${confirmStep}。`);
     }
   }
   if (!localhostUrl) {
-    throw new Error('未找到 localhost 回调地址，请先完成步骤 8。');
+    throw new Error(`未找到 localhost 回调地址，请先完成步骤 ${confirmStep}。`);
   }
-  log(`步骤 10：已获取 localhostUrl：${localhostUrl.slice(0, 60)}...`);
+  log(`步骤 ${visibleStep}：已获取 localhostUrl：${localhostUrl.slice(0, 60)}...`);
 
-  log('步骤 10：正在查找回调地址输入框...');
+  log(`步骤 ${visibleStep}：正在查找回调地址输入框...`);
 
   // Find the callback URL input
   // Actual DOM: <input class="input" placeholder="http://localhost:1455/auth/callback?code=...&state=...">
@@ -1046,7 +1050,7 @@ async function step9_vpsVerify(payload) {
 
   await humanPause(600, 1500);
   fillInput(urlInput, localhostUrl);
-  log(`步骤 10：已填写回调地址：${localhostUrl.slice(0, 80)}...`);
+  log(`步骤 ${visibleStep}：已填写回调地址：${localhostUrl.slice(0, 80)}...`);
 
   // Find and click the callback submit button in supported UI languages.
   const callbackSubmitPattern = /提交回调\s*URL|Submit\s+Callback\s+URL|Отправить\s+Callback\s+URL/i;
@@ -1067,9 +1071,9 @@ async function step9_vpsVerify(payload) {
 
   await humanPause(450, 1200);
   simulateClick(submitBtn);
-  log('步骤 10：已点击回调提交按钮，正在等待认证结果...');
+  log(`步骤 ${visibleStep}：已点击回调提交按钮，正在等待认证结果...`);
 
   const verifiedStatus = await waitForExactSuccessBadge();
-  log(`步骤 10：${verifiedStatus}`, 'ok');
-  reportComplete(10, { localhostUrl, verifiedStatus });
+  log(`步骤 ${visibleStep}：${verifiedStatus}`, 'ok');
+  reportComplete(visibleStep, { localhostUrl, verifiedStatus });
 }

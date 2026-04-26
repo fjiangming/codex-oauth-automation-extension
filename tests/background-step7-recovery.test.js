@@ -85,8 +85,78 @@ test('step 8 submits login verification directly without replaying step 7', asyn
     { step8VerificationTargetEmail: 'display.user@example.com' },
   ]);
   assert.deepStrictEqual(calls.ensureReadyOptions, [
-    { timeoutMs: 5000 },
+    { visibleStep: 8, authLoginStep: 7, timeoutMs: 5000 },
   ]);
+  assert.equal(calls.resolveOptions.completionStep, 8);
+});
+
+test('Plus login-code step reuses step 8 verification logic but completes visible step 11', async () => {
+  let resolvedStep = null;
+  let resolvedOptions = null;
+  let readyOptions = null;
+  const remainingStepCalls = [];
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async (options) => {
+      readyOptions = options;
+      return { state: 'verification_page', displayedEmail: 'plus.user@example.com' };
+    },
+    rerunStep7ForStep8Recovery: async () => {},
+    getOAuthFlowRemainingMs: async (details) => {
+      remainingStepCalls.push(details.step);
+      return 9000;
+    },
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs, details) => {
+      remainingStepCalls.push(details.step);
+      return Math.min(defaultTimeoutMs, 9000);
+    },
+    getMailConfig: () => ({
+      provider: 'qq',
+      label: 'QQ 邮箱',
+      source: 'mail-qq',
+      url: 'https://mail.qq.com',
+      navigateOnReuse: false,
+    }),
+    getState: async () => ({ email: 'user@example.com', password: 'secret', plusModeEnabled: true }),
+    getTabId: async (sourceName) => (sourceName === 'signup-page' ? 1 : 2),
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    resolveVerificationStep: async (step, _state, _mail, options) => {
+      resolvedStep = step;
+      resolvedOptions = options;
+      await options.getRemainingTimeMs({ actionLabel: '登录验证码流程' });
+    },
+    reuseOrCreateTab: async () => {},
+    setState: async () => {},
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep8({
+    visibleStep: 11,
+    plusModeEnabled: true,
+    email: 'user@example.com',
+    password: 'secret',
+    oauthUrl: 'https://oauth.example/latest',
+  });
+
+  assert.equal(resolvedStep, 8);
+  assert.equal(resolvedOptions.completionStep, 11);
+  assert.equal(resolvedOptions.targetEmail, 'plus.user@example.com');
+  assert.deepStrictEqual(readyOptions, { visibleStep: 11, authLoginStep: 10, timeoutMs: 9000 });
+  assert.deepStrictEqual(remainingStepCalls, [11, 11]);
 });
 
 test('step 8 uses a fixed 10-minute lookback window and disables resend interval for 2925 mailbox polling', async () => {

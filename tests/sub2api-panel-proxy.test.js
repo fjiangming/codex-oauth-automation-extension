@@ -177,6 +177,31 @@ test('SUB2API step 10 uses the same proxy for code exchange and account creation
   assert.equal(context.completed[0].step, 10);
 });
 
+test('SUB2API panel accepts Plus platform verify step 13', async () => {
+  const fetchCalls = [];
+  const context = createSub2ApiPanelContext(fetchCalls);
+
+  await vm.runInContext(`
+    handleStep(13, {
+      localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+      sub2apiUrl: 'https://sub.example/admin/accounts',
+      sub2apiEmail: 'admin@example.com',
+      sub2apiPassword: 'secret',
+      sub2apiGroupName: 'codex',
+      sub2apiSessionId: 'session-1',
+      sub2apiOAuthState: 'oauth-state',
+      sub2apiGroupId: 5
+    })
+  `, context);
+
+  const exchangeCall = fetchCalls.find((call) => call.path === '/api/v1/admin/openai/exchange-code');
+  const createCall = fetchCalls.find((call) => call.path === '/api/v1/admin/accounts');
+
+  assert.equal(exchangeCall.body.code, 'callback-code');
+  assert.equal(createCall.body.group_ids[0], 5);
+  assert.equal(context.completed[0].step, 13);
+});
+
 test('SUB2API step 1 omits proxy_id when default proxy is empty', async () => {
   const fetchCalls = [];
   const context = createSub2ApiPanelContext(fetchCalls);
