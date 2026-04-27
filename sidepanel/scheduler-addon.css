@@ -1,0 +1,295 @@
+/* ============================================================
+   Scheduler Addon — Side Panel Plugin
+   独立样式文件，使用原项目 CSS 变量保持一致性
+   ============================================================ */
+
+/* ---- Scheduler Panel Container ---- */
+
+.scheduler-addon {
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.scheduler-addon-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* ---- Collapse Header ---- */
+
+.scheduler-addon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.scheduler-addon-header:hover {
+  background: var(--bg-hover);
+}
+
+.scheduler-addon-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scheduler-addon-header-left .section-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.scheduler-addon-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.scheduler-addon-badge[data-state="idle"] {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.scheduler-addon-badge[data-state="running"] {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.scheduler-addon-badge[data-state="waiting"] {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.scheduler-addon-badge[data-state="stopping"] {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.scheduler-addon-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.scheduler-addon-card.is-expanded .scheduler-addon-chevron {
+  transform: rotate(180deg);
+}
+
+/* ---- Body ---- */
+
+.scheduler-addon-body {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.scheduler-addon-card.is-expanded .scheduler-addon-body {
+  display: flex;
+}
+
+/* ---- Config Rows ---- */
+
+.scheduler-addon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scheduler-addon-label {
+  flex: 0 0 72px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.scheduler-addon-controls {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scheduler-addon-input {
+  width: 60px;
+  padding: 5px 6px;
+  text-align: center;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.scheduler-addon-input:focus {
+  border-color: var(--blue);
+}
+
+.scheduler-addon-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scheduler-addon-input::-webkit-inner-spin-button {
+  opacity: 0.5;
+}
+
+.scheduler-addon-unit {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Toggle Switch (standalone, not relying on original class) ---- */
+
+.scheduler-addon-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.scheduler-addon-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.scheduler-addon-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: background var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+}
+
+.scheduler-addon-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.scheduler-addon-toggle input:checked + .scheduler-addon-toggle-track {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
+.scheduler-addon-toggle input:checked + .scheduler-addon-toggle-track .scheduler-addon-toggle-thumb {
+  transform: translateX(14px);
+  background: var(--blue);
+}
+
+/* ---- Actions ---- */
+
+.scheduler-addon-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.scheduler-addon-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* ---- Status Display ---- */
+
+.scheduler-addon-status {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  display: none;
+}
+
+.scheduler-addon-status.is-visible {
+  display: block;
+}
+
+.scheduler-addon-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scheduler-addon-status-line + .scheduler-addon-status-line {
+  margin-top: 4px;
+}
+
+.scheduler-addon-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.scheduler-addon-status-dot.is-running {
+  background: var(--green);
+  animation: scheduler-addon-pulse 1.5s ease-in-out infinite;
+}
+
+.scheduler-addon-status-dot.is-waiting {
+  background: var(--amber);
+  animation: scheduler-addon-pulse 2s ease-in-out infinite;
+}
+
+.scheduler-addon-status-dot.is-idle {
+  background: var(--text-muted);
+}
+
+.scheduler-addon-countdown {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scheduler-addon-stats {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+@keyframes scheduler-addon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
