@@ -132,6 +132,115 @@ return {
   );
 });
 
+test('step 8 ready check keeps waiting when retryPage is reported on consent URL', async () => {
+  const api = new Function(`
+let pollCount = 0;
+
+function throwIfStopped() {}
+async function sleepWithStop() {}
+async function ensureStep8SignupPageReady() {}
+async function getState() {
+  return { phoneVerificationEnabled: true };
+}
+const phoneVerificationHelpers = {
+  async completePhoneVerificationFlow() {
+    throw new Error('should not trigger phone verification flow');
+  },
+};
+async function getStep8PageState() {
+  pollCount += 1;
+  if (pollCount === 1) {
+    return {
+      url: 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+      retryPage: true,
+      consentPage: true,
+      consentReady: false,
+      addPhonePage: false,
+      phoneVerificationPage: false,
+    };
+  }
+  return {
+    url: 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+    retryPage: false,
+    consentPage: true,
+    consentReady: true,
+    addPhonePage: false,
+    phoneVerificationPage: false,
+  };
+}
+
+${extractFunction('waitForStep8Ready')}
+
+return {
+  async run() {
+    return waitForStep8Ready(88, 1000);
+  },
+};
+`)();
+
+  const result = await api.run();
+  assert.equal(result?.consentReady, true);
+  assert.equal(result?.retryPage, false);
+});
+
+test('step 8 click effect ignores consent-like retry snapshots and waits for real page progress', async () => {
+  const api = new Function(`
+let pollCount = 0;
+const chrome = {
+  tabs: {
+    async get() {
+      return {
+        id: 88,
+        url: 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+      };
+    },
+  },
+};
+
+function throwIfStopped() {}
+async function sleepWithStop() {}
+async function ensureStep8SignupPageReady() {}
+async function getStep8PageState() {
+  pollCount += 1;
+  if (pollCount === 1) {
+    return {
+      url: 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+      retryPage: true,
+      consentPage: true,
+      consentReady: false,
+      addPhonePage: false,
+      verificationPage: false,
+    };
+  }
+  return {
+    url: 'https://chatgpt.com/',
+    retryPage: false,
+    consentPage: false,
+    consentReady: false,
+    addPhonePage: false,
+    verificationPage: false,
+  };
+}
+
+${extractFunction('waitForStep8ClickEffect')}
+
+return {
+  async run() {
+    return waitForStep8ClickEffect(
+      88,
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+      1000
+    );
+  },
+};
+`)();
+
+  const result = await api.run();
+  assert.equal(result?.progressed, true);
+  assert.equal(result?.reason, 'left_consent_page');
+  assert.match(String(result?.url || ''), /chatgpt\.com/);
+});
+
 test('step 8 ready check completes phone verification flow before waiting for OAuth consent', async () => {
   const api = new Function(`
 let pollCount = 0;

@@ -7,6 +7,8 @@ importScripts(
   'background/account-run-history.js',
   'background/contribution-oauth.js',
   'background/mail-2925-session.js',
+  'background/ip-proxy-provider-711proxy.js',
+  'background/ip-proxy-core.js',
   'background/panel-bridge.js',
   'background/generated-email-helpers.js',
   'background/signup-flow-helpers.js',
@@ -211,6 +213,43 @@ const CONTRIBUTION_SOURCE_SUB2API = 'sub2api';
 const CONTRIBUTION_SUB2API_DEFAULT_GROUP_NAME = 'codex号池';
 const CONTRIBUTION_SUB2API_PLUS_GROUP_NAME = 'openai-plus';
 const DEFAULT_SUB2API_REDIRECT_URI = 'http://localhost:1455/auth/callback';
+const DEFAULT_IP_PROXY_SERVICE = '711proxy';
+const IP_PROXY_SERVICE_VALUES = ['711proxy', 'lumiproxy', 'iproyal', 'omegaproxy'];
+const IP_PROXY_ENABLED_SERVICE_VALUES = ['711proxy'];
+const DEFAULT_IP_PROXY_MODE = 'account';
+const IP_PROXY_MODE_VALUES = ['api', 'account'];
+const DEFAULT_IP_PROXY_PROTOCOL = 'http';
+const IP_PROXY_PROTOCOL_VALUES = ['http', 'https', 'socks4', 'socks5'];
+const IP_PROXY_FETCH_TIMEOUT_MS = 20000;
+const IP_PROXY_SETTINGS_SCOPE = 'regular';
+const IP_PROXY_BYPASS_LIST = ['<local>', 'localhost', '127.0.0.1'];
+const IP_PROXY_ROUTE_ALL_TRAFFIC = true;
+const IP_PROXY_ACCOUNT_LIST_ENABLED = false;
+const IP_PROXY_INIT_ENABLE_EXIT_PROBE = false;
+const IP_PROXY_INIT_SUPPRESS_AUTH_REBIND = true;
+const IP_PROXY_INIT_AUTO_APPLY = false;
+const IP_PROXY_TARGET_HOST_PATTERNS = [
+  'openai.com',
+  '*.openai.com',
+  'chatgpt.com',
+  '*.chatgpt.com',
+  'ipwho.is',
+  '*.ipwho.is',
+  'ipapi.co',
+  '*.ipapi.co',
+  'ipinfo.io',
+  '*.ipinfo.io',
+  'api.ipify.org',
+  'api64.ipify.org',
+  'api.ip.cc',
+  'ifconfig.me',
+  'checkip.amazonaws.com',
+  'ipv4.icanhazip.com',
+  'ident.me',
+  'httpbin.org',
+  'ip-api.com',
+  'myip.ipip.net',
+];
 const AUTO_RUN_TIMER_ALARM_NAME = 'auto-run-timer';
 const AUTO_RUN_TIMER_KIND_SCHEDULED_START = 'scheduled_start';
 const AUTO_RUN_TIMER_KIND_BETWEEN_ROUNDS = 'between_rounds';
@@ -376,6 +415,21 @@ const PERSISTED_SETTING_DEFAULTS = {
   sub2apiPassword: '',
   sub2apiGroupName: DEFAULT_SUB2API_GROUP_NAME,
   sub2apiDefaultProxyName: DEFAULT_SUB2API_PROXY_NAME,
+  ipProxyEnabled: false,
+  ipProxyService: DEFAULT_IP_PROXY_SERVICE,
+  ipProxyMode: DEFAULT_IP_PROXY_MODE,
+  ipProxyApiUrl: '',
+  ipProxyServiceProfiles: {},
+  ipProxyAccountList: '',
+  ipProxyAccountSessionPrefix: '',
+  ipProxyAccountLifeMinutes: '',
+  ipProxyPoolTargetCount: '20',
+  ipProxyHost: '',
+  ipProxyPort: '',
+  ipProxyProtocol: DEFAULT_IP_PROXY_PROTOCOL,
+  ipProxyUsername: '',
+  ipProxyPassword: '',
+  ipProxyRegion: '',
   codex2apiUrl: DEFAULT_CODEX2API_URL,
   codex2apiAdminKey: '',
   customPassword: '',
@@ -485,6 +539,15 @@ const DEFAULT_STATE = {
   sourceLastUrls: {}, // 各来源页面最近一次打开的地址记录。
   logs: [], // 侧边栏展示的运行日志。
   ...PERSISTED_SETTING_DEFAULTS, // 合并 chrome.storage.local 中持久化保存的用户配置。
+  ipProxyApiPool: [],
+  ipProxyApiCurrentIndex: 0,
+  ipProxyApiCurrent: null,
+  ipProxyAccountPool: [],
+  ipProxyAccountCurrentIndex: 0,
+  ipProxyAccountCurrent: null,
+  ipProxyPool: [],
+  ipProxyCurrentIndex: 0,
+  ipProxyCurrent: null,
   luckmailApiKey: '',
   luckmailBaseUrl: DEFAULT_LUCKMAIL_BASE_URL,
   luckmailEmailType: DEFAULT_LUCKMAIL_EMAIL_TYPE,
@@ -515,6 +578,21 @@ const DEFAULT_STATE = {
   currentHotmailAccountId: null,
   currentMail2925AccountId: null,
   preferredIcloudHost: '',
+  ipProxyApplied: false,
+  ipProxyAppliedReason: 'disabled',
+  ipProxyAppliedAt: 0,
+  ipProxyAppliedHost: '',
+  ipProxyAppliedPort: 0,
+  ipProxyAppliedRegion: '',
+  ipProxyAppliedHasAuth: false,
+  ipProxyAppliedProvider: DEFAULT_IP_PROXY_SERVICE,
+  ipProxyAppliedError: '',
+  ipProxyAppliedWarning: '',
+  ipProxyAppliedExitIp: '',
+  ipProxyAppliedExitRegion: '',
+  ipProxyAppliedExitDetecting: false,
+  ipProxyAppliedExitError: '',
+  ipProxyAppliedExitSource: '',
 };
 
 function normalizeAutoRunDelayMinutes(value) {
@@ -1097,6 +1175,63 @@ function normalizePersistentSettingValue(key, value) {
       return String(value || '').trim();
     case 'sub2apiDefaultProxyName':
       return String(value || '').trim();
+    case 'ipProxyEnabled':
+      return Boolean(value);
+    case 'ipProxyService':
+      return normalizeIpProxyProviderValue(value);
+    case 'ipProxyMode':
+      return normalizeIpProxyMode(value);
+    case 'ipProxyApiUrl':
+      return String(value || '').trim();
+    case 'ipProxyServiceProfiles':
+      return normalizeIpProxyServiceProfiles(value || {}, PERSISTED_SETTING_DEFAULTS);
+    case 'ipProxyAccountList':
+      return normalizeIpProxyAccountList(value || '');
+    case 'ipProxyAccountSessionPrefix':
+      return normalizeIpProxyAccountSessionPrefix(value || '');
+    case 'ipProxyAccountLifeMinutes':
+      return normalizeIpProxyAccountLifeMinutes(value || '');
+    case 'ipProxyPoolTargetCount':
+      return normalizeIpProxyPoolTargetCount(value || '', 20);
+    case 'ipProxyHost':
+      return String(value || '').trim();
+    case 'ipProxyPort':
+      return String(normalizeIpProxyPort(value || '') || '');
+    case 'ipProxyProtocol':
+      return normalizeIpProxyProtocol(value);
+    case 'ipProxyUsername':
+      return String(value || '').trim();
+    case 'ipProxyPassword':
+      return String(value || '');
+    case 'ipProxyRegion':
+      return String(value || '').trim();
+    case 'ipProxyApiPool':
+      return normalizeProxyPoolEntries(
+        value,
+        normalizeIpProxyProviderValue(value?.provider || DEFAULT_IP_PROXY_SERVICE)
+      );
+    case 'ipProxyApiCurrentIndex':
+      return normalizeIpProxyCurrentIndex(value, 0);
+    case 'ipProxyApiCurrent':
+      return normalizeProxyPoolEntries(value ? [value] : [], DEFAULT_IP_PROXY_SERVICE)[0] || null;
+    case 'ipProxyAccountPool':
+      return normalizeProxyPoolEntries(
+        value,
+        normalizeIpProxyProviderValue(value?.provider || DEFAULT_IP_PROXY_SERVICE)
+      );
+    case 'ipProxyAccountCurrentIndex':
+      return normalizeIpProxyCurrentIndex(value, 0);
+    case 'ipProxyAccountCurrent':
+      return normalizeProxyPoolEntries(value ? [value] : [], DEFAULT_IP_PROXY_SERVICE)[0] || null;
+    case 'ipProxyPool':
+      return normalizeProxyPoolEntries(
+        value,
+        normalizeIpProxyProviderValue(value?.provider || DEFAULT_IP_PROXY_SERVICE)
+      );
+    case 'ipProxyCurrentIndex':
+      return normalizeIpProxyCurrentIndex(value, 0);
+    case 'ipProxyCurrent':
+      return normalizeProxyPoolEntries(value ? [value] : [], DEFAULT_IP_PROXY_SERVICE)[0] || null;
     case 'codex2apiUrl':
       return normalizeCodex2ApiUrl(value);
     case 'codex2apiAdminKey':
@@ -1240,6 +1375,34 @@ function buildPersistentSettingsPayload(input = {}, options = {}) {
       domains.unshift(payload.cloudflareTempEmailDomain);
     }
     payload.cloudflareTempEmailDomains = domains;
+  }
+  if (payload.ipProxyServiceProfiles) {
+    const selectedService = normalizeIpProxyProviderValue(
+      payload.ipProxyService || PERSISTED_SETTING_DEFAULTS.ipProxyService
+    );
+    const normalizedProfiles = normalizeIpProxyServiceProfiles(payload.ipProxyServiceProfiles, {
+      ...PERSISTED_SETTING_DEFAULTS,
+      ...payload,
+    });
+    payload.ipProxyServiceProfiles = normalizedProfiles;
+    const activeProfile = normalizedProfiles[selectedService]
+      || buildIpProxyServiceProfileFromState({
+        ...PERSISTED_SETTING_DEFAULTS,
+        ...payload,
+      });
+    payload.ipProxyService = selectedService;
+    payload.ipProxyMode = normalizeIpProxyMode(activeProfile?.mode || payload.ipProxyMode);
+    payload.ipProxyApiUrl = String(activeProfile?.apiUrl || payload.ipProxyApiUrl || '').trim();
+    payload.ipProxyAccountList = normalizeIpProxyAccountList(activeProfile?.accountList || payload.ipProxyAccountList || '');
+    payload.ipProxyAccountSessionPrefix = normalizeIpProxyAccountSessionPrefix(activeProfile?.accountSessionPrefix || payload.ipProxyAccountSessionPrefix || '');
+    payload.ipProxyAccountLifeMinutes = normalizeIpProxyAccountLifeMinutes(activeProfile?.accountLifeMinutes || payload.ipProxyAccountLifeMinutes || '');
+    payload.ipProxyPoolTargetCount = normalizeIpProxyPoolTargetCount(activeProfile?.poolTargetCount || payload.ipProxyPoolTargetCount || '', 20);
+    payload.ipProxyHost = String(activeProfile?.host || payload.ipProxyHost || '').trim();
+    payload.ipProxyPort = String(normalizeIpProxyPort(activeProfile?.port || payload.ipProxyPort || '') || '');
+    payload.ipProxyProtocol = normalizeIpProxyProtocol(activeProfile?.protocol || payload.ipProxyProtocol);
+    payload.ipProxyUsername = String(activeProfile?.username || payload.ipProxyUsername || '').trim();
+    payload.ipProxyPassword = String(activeProfile?.password || payload.ipProxyPassword || '');
+    payload.ipProxyRegion = String(activeProfile?.region || payload.ipProxyRegion || '').trim();
   }
 
   return payload;
@@ -6557,23 +6720,48 @@ const AUTO_RUN_PRE_EXECUTION_DELAYS_BY_STEP_KEY = new Map([
 ]);
 
 function waitForStepComplete(step, timeoutMs = 120000) {
-  return new Promise((resolve, reject) => {
-    throwIfStopped();
-    if (stepWaiters.has(step)) {
-      console.warn(LOG_PREFIX, `[waitForStepComplete] replacing existing waiter for step ${step}`);
-    }
-    console.log(LOG_PREFIX, `[waitForStepComplete] register step ${step}, timeout=${timeoutMs}ms`);
+  throwIfStopped();
+  const normalizedStep = Number(step);
+  const existingWaiter = stepWaiters.get(normalizedStep);
+  if (existingWaiter?.promise) {
+    console.log(LOG_PREFIX, `[waitForStepComplete] reuse existing waiter for step ${normalizedStep}`);
+    return existingWaiter.promise;
+  }
+
+  console.log(LOG_PREFIX, `[waitForStepComplete] register step ${normalizedStep}, timeout=${timeoutMs}ms`);
+  const waiter = {
+    promise: null,
+    resolve: null,
+    reject: null,
+  };
+
+  waiter.promise = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      stepWaiters.delete(step);
-      console.warn(LOG_PREFIX, `[waitForStepComplete] timeout for step ${step} after ${timeoutMs}ms`);
-      reject(new Error(`步骤 ${step} 等待超时（>${timeoutMs / 1000} 秒）`));
+      if (stepWaiters.get(normalizedStep) === waiter) {
+        stepWaiters.delete(normalizedStep);
+      }
+      console.warn(LOG_PREFIX, `[waitForStepComplete] timeout for step ${normalizedStep} after ${timeoutMs}ms`);
+      reject(new Error(`步骤 ${normalizedStep} 等待超时（>${timeoutMs / 1000} 秒）`));
     }, timeoutMs);
 
-    stepWaiters.set(step, {
-      resolve: (data) => { clearTimeout(timer); stepWaiters.delete(step); resolve(data); },
-      reject: (err) => { clearTimeout(timer); stepWaiters.delete(step); reject(err); },
-    });
+    waiter.resolve = (data) => {
+      clearTimeout(timer);
+      if (stepWaiters.get(normalizedStep) === waiter) {
+        stepWaiters.delete(normalizedStep);
+      }
+      resolve(data);
+    };
+    waiter.reject = (err) => {
+      clearTimeout(timer);
+      if (stepWaiters.get(normalizedStep) === waiter) {
+        stepWaiters.delete(normalizedStep);
+      }
+      reject(err);
+    };
   });
+
+  stepWaiters.set(normalizedStep, waiter);
+  return waiter.promise;
 }
 
 function getStepExecutionKeyForState(step, state = {}) {
@@ -7290,6 +7478,85 @@ async function deleteAndBroadcastAccountRunHistoryRecords(recordIds = [], stateO
   return result;
 }
 
+function resolveIpProxyCandidateCountForAutoSwitch(state = {}, mode = 'account', provider = DEFAULT_IP_PROXY_SERVICE) {
+  const normalizedMode = typeof normalizeIpProxyMode === 'function'
+    ? normalizeIpProxyMode(mode)
+    : String(mode || 'account').trim().toLowerCase();
+  const normalizedProvider = typeof normalizeIpProxyProviderValue === 'function'
+    ? normalizeIpProxyProviderValue(provider)
+    : String(provider || DEFAULT_IP_PROXY_SERVICE).trim().toLowerCase();
+  if (normalizedMode === 'account' && typeof getAccountModeProxyPoolFromState === 'function') {
+    const pool = getAccountModeProxyPoolFromState(state, normalizedProvider);
+    return Array.isArray(pool) ? pool.length : 0;
+  }
+  if (typeof getIpProxyRuntimeSnapshot === 'function') {
+    const runtime = getIpProxyRuntimeSnapshot(state, normalizedMode, normalizedProvider);
+    return Array.isArray(runtime?.pool) ? runtime.pool.length : 0;
+  }
+  return 0;
+}
+
+async function maybeSwitchIpProxyAfterAutoRunRoundSuccess(payload = {}) {
+  if (typeof switchIpProxy !== 'function') {
+    return null;
+  }
+  const successfulRuns = Number(payload?.successfulRuns) || 0;
+  if (successfulRuns <= 0) {
+    return null;
+  }
+
+  const state = await getState();
+  if (!state?.ipProxyEnabled) {
+    return null;
+  }
+
+  const mode = typeof normalizeIpProxyMode === 'function'
+    ? normalizeIpProxyMode(state?.ipProxyMode)
+    : String(state?.ipProxyMode || 'account').trim().toLowerCase();
+  const provider = typeof normalizeIpProxyProviderValue === 'function'
+    ? normalizeIpProxyProviderValue(state?.ipProxyService)
+    : String(state?.ipProxyService || DEFAULT_IP_PROXY_SERVICE).trim().toLowerCase();
+  const threshold = typeof resolveIpProxyAutoSwitchThreshold === 'function'
+    ? resolveIpProxyAutoSwitchThreshold(state)
+    : Math.max(1, Math.min(500, Number(state?.ipProxyPoolTargetCount) || 20));
+  if (successfulRuns % threshold !== 0) {
+    return null;
+  }
+
+  const candidateCount = resolveIpProxyCandidateCountForAutoSwitch(state, mode, provider);
+  if (candidateCount <= 1) {
+    await addLog(
+      `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），但当前仅 ${candidateCount} 条可切换代理，已跳过自动切换。`,
+      'info'
+    );
+    return {
+      skipped: true,
+      reason: 'insufficient_candidates',
+      candidateCount,
+      threshold,
+      successfulRuns,
+    };
+  }
+
+  const switchResult = await switchIpProxy('next', {
+    mode,
+    state,
+    forceRefresh: mode === 'api',
+    maxItems: typeof resolveIpProxyPoolTargetCountForMode === 'function'
+      ? resolveIpProxyPoolTargetCountForMode(state, mode)
+      : undefined,
+  });
+  const display = String(switchResult?.display || '').trim();
+  const routingApplied = Boolean(switchResult?.proxyRouting?.applied);
+  await addLog(
+    routingApplied
+      ? `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），已自动切换代理：${display || '已切换到下一条'}。`
+      : `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），已尝试自动切换代理，但连通性仍异常。`,
+    routingApplied ? 'ok' : 'warn'
+  );
+  return switchResult;
+}
+
 const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoRunController({
   addLog,
   appendAccountRunRecord: (...args) => appendAndBroadcastAccountRunRecord(...args),
@@ -7316,6 +7583,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isStopError,
   launchAutoRunTimerPlan,
   normalizeAutoRunFallbackThreadIntervalMinutes,
+  onAutoRunRoundSuccess: (payload = {}) => maybeSwitchIpProxyAfterAutoRunRoundSuccess(payload),
   persistAutoRunTimerPlan,
   resetState,
   runAutoSequenceFromStep: (...args) => runAutoSequenceFromStep(...args),
@@ -8118,6 +8386,7 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   addLog,
   chrome,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+  completeStepFromBackground,
   confirmCustomVerificationStepBypass: verificationFlowHelpers.confirmCustomVerificationStepBypass,
   ensureMail2925MailboxSession,
   ensureIcloudMailSession: ensureIcloudMailSessionForVerification,
@@ -8234,6 +8503,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   buildLuckmailSessionSettingsPayload,
   buildPersistentSettingsPayload,
   broadcastDataUpdate,
+  applyIpProxySettingsFromState,
   cancelScheduledAutoRun,
   checkIcloudSession,
   clearAccountRunHistory: (...args) => clearAndBroadcastAccountRunHistory(...args),
@@ -8290,6 +8560,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   launchAutoRunTimerPlan,
   listIcloudAliases,
   listLuckmailPurchasesForManagement,
+  refreshIpProxyPool,
   getCurrentMail2925Account,
   normalizeHotmailAccounts,
   normalizeMail2925Accounts,
@@ -8301,10 +8572,13 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   patchMail2925Account,
   registerTab,
   requestStop,
+  probeIpProxyExit,
   resetState,
   resumeAutoRun,
   scheduleAutoRun,
   selectLuckmailPurchase,
+  switchIpProxy,
+  changeIpProxyExit,
   setCurrentHotmailAccount,
   setCurrentMail2925Account,
   setContributionMode,
@@ -8819,6 +9093,38 @@ function isAddPhoneAuthState(authState = {}) {
 }
 
 async function getPostStep6AutoRestartDecision(step, error) {
+  const resolveStepKey = (stepId, state) => {
+    if (typeof getStepExecutionKeyForState === 'function') {
+      return getStepExecutionKeyForState(stepId, state);
+    }
+    return String(
+      typeof getStepDefinitionForState === 'function'
+        ? (getStepDefinitionForState(stepId, state)?.key || '')
+        : ''
+    ).trim();
+  };
+  const findStepIdByKeyForState = (targetKey, state = {}) => {
+    const normalizedKey = String(targetKey || '').trim();
+    if (!normalizedKey) {
+      return null;
+    }
+    const stepIds = typeof getStepIdsForState === 'function'
+      ? getStepIdsForState(state)
+      : [];
+    for (const stepId of stepIds) {
+      if (resolveStepKey(stepId, state) === normalizedKey) {
+        return Number(stepId);
+      }
+    }
+    return null;
+  };
+  const isPlatformVerifyTransientRetryError = (errorMessage = '') => {
+    const normalizedMessage = String(errorMessage || '');
+    const mentionsTokenExchange = /auth\.openai\.com\/oauth\/token/i.test(normalizedMessage);
+    const hasTransientNetworkSignal = /connect:\s*connection refused|failed to fetch|i\/o timeout|context deadline exceeded|eof|connection reset by peer/i.test(normalizedMessage);
+    return mentionsTokenExchange && hasTransientNetworkSignal;
+  };
+
   const normalizedStep = Number(step);
   const errorMessage = getErrorMessage(error);
   const shouldForceRestartFromStep7 = /restart step 7 with a new number/i.test(errorMessage);
@@ -8829,6 +9135,14 @@ async function getPostStep6AutoRestartDecision(step, error) {
   const lastStepId = typeof getLastStepIdForState === 'function'
     ? getLastStepIdForState(latestState)
     : (typeof LAST_STEP_ID === 'number' ? LAST_STEP_ID : 10);
+  const currentStepKey = resolveStepKey(normalizedStep, latestState);
+  const confirmOauthStep = findStepIdByKeyForState('confirm-oauth', latestState);
+  const shouldRetryFromConfirmStep = currentStepKey === 'platform-verify'
+    && Number.isFinite(confirmOauthStep)
+    && confirmOauthStep > 0
+    && confirmOauthStep < normalizedStep
+    && isPlatformVerifyTransientRetryError(errorMessage);
+  const restartAnchorStep = shouldRetryFromConfirmStep ? confirmOauthStep : authChainStartStep;
   if (!Number.isFinite(normalizedStep) || normalizedStep < authChainStartStep || normalizedStep > lastStepId) {
     return {
       shouldRestart: false,
@@ -8865,7 +9179,7 @@ async function getPostStep6AutoRestartDecision(step, error) {
   let authState = null;
   try {
     authState = await getLoginAuthStateFromContent({
-      logMessage: `步骤 ${normalizedStep}：正在确认当前认证页状态，以决定是否回到步骤 ${authChainStartStep} 重开...`,
+      logMessage: `步骤 ${normalizedStep}：正在确认当前认证页状态，以决定是否回到步骤 ${restartAnchorStep} 重开...`,
     });
   } catch (inspectError) {
     console.warn(LOG_PREFIX, '[AutoRun] failed to inspect login auth state after post-step6 error', {
@@ -8890,7 +9204,7 @@ async function getPostStep6AutoRestartDecision(step, error) {
     shouldRestart: true,
     blockedByAddPhone: false,
     forcedByPhoneVerificationTimeout: false,
-    restartStep: authChainStartStep,
+    restartStep: restartAnchorStep,
     errorMessage,
     authState,
   };
@@ -8923,8 +9237,12 @@ async function getLoginAuthStateFromContent(options = {}) {
 async function ensureStep8VerificationPageReady(options = {}) {
   const visibleStep = Number(options.visibleStep) || 8;
   const authLoginStep = Number(options.authLoginStep) || (visibleStep >= 11 ? 10 : 7);
-  const pageState = await getLoginAuthStateFromContent(options);
-  if (pageState.state === 'verification_page') {
+  const inspectState = async (overrides = {}) => getLoginAuthStateFromContent({
+    ...options,
+    ...overrides,
+  });
+  let pageState = await inspectState();
+  if (pageState.state === 'verification_page' || pageState.state === 'oauth_consent_page') {
     return pageState;
   }
 
@@ -8933,11 +9251,79 @@ async function ensureStep8VerificationPageReady(options = {}) {
   }
 
   if (pageState.state === 'login_timeout_error_page') {
+    let recovered = false;
+    try {
+      const recoverPayload = {
+        flow: 'login',
+        logLabel: `步骤 ${visibleStep}：检测到登录超时报错，正在点击“重试”恢复当前页面`,
+        step: visibleStep,
+        timeoutMs: 12000,
+      };
+      const recoverMessage = {
+        type: 'RECOVER_AUTH_RETRY_PAGE',
+        source: 'background',
+        payload: recoverPayload,
+      };
+      let recoverResult = null;
+      const recoverTimeoutMs = 15000;
+      if (typeof sendToContentScriptResilient === 'function') {
+        recoverResult = await sendToContentScriptResilient(
+          'signup-page',
+          recoverMessage,
+          {
+            timeoutMs: recoverTimeoutMs,
+            responseTimeoutMs: recoverTimeoutMs,
+            retryDelayMs: 700,
+            logMessage: `步骤 ${visibleStep}：认证页进入重试/超时报错状态，正在尝试点击“重试”恢复...`,
+          }
+        );
+      } else if (typeof sendToContentScript === 'function') {
+        recoverResult = await sendToContentScript('signup-page', recoverMessage, {
+          responseTimeoutMs: recoverTimeoutMs,
+        });
+      }
+
+      if (recoverResult?.error) {
+        throw new Error(recoverResult.error);
+      }
+      recovered = Boolean(recoverResult?.recovered || Number(recoverResult?.clickCount) > 0);
+      if (recovered && typeof addLog === 'function') {
+        await addLog(`步骤 ${visibleStep}：认证页已点击“重试”，正在重新确认验证码页状态...`, 'warn');
+      }
+    } catch (recoverError) {
+      const recoverMessage = getErrorMessage(recoverError);
+      if (/^CF_SECURITY_BLOCKED::/i.test(recoverMessage)) {
+        throw recoverError;
+      }
+      if (typeof addLog === 'function') {
+        await addLog(`步骤 ${visibleStep}：认证页“重试”恢复失败：${recoverMessage}`, 'warn');
+      }
+    }
+
+    if (recovered) {
+      pageState = await inspectState({
+        timeoutMs: 10000,
+        responseTimeoutMs: 10000,
+        retryDelayMs: 500,
+        logMessage: `步骤 ${visibleStep}：认证页恢复后，正在确认验证码页是否可继续...`,
+      });
+      if (pageState.state === 'verification_page' || pageState.state === 'oauth_consent_page') {
+        return pageState;
+      }
+      if (pageState.maxCheckAttemptsBlocked) {
+        throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
+      }
+      if (pageState.state === 'add_phone_page' || pageState.state === 'phone_verification_page') {
+        const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
+        throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
+      }
+    }
+
     const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
     throw new Error(`STEP8_RESTART_STEP7::步骤 ${visibleStep}：当前认证页进入登录超时报错页，请回到步骤 ${authLoginStep} 重新开始。${urlPart}`.trim());
   }
 
-  if (pageState.state === 'add_phone_page') {
+  if (pageState.state === 'add_phone_page' || pageState.state === 'phone_verification_page') {
     const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
     throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
   }
@@ -9144,7 +9530,15 @@ async function waitForStep8Ready(tabId, timeoutMs = STEP8_READY_WAIT_TIMEOUT_MS)
       throw new Error('步骤 9：认证页进入了手机号页面，当前不是 OAuth 同意页，无法继续自动授权。');
     }
     if (pageState?.retryPage) {
-      throw new Error(`步骤 9：当前认证页已进入重试页，当前流程将直接报错。URL: ${pageState.url || 'unknown'}`);
+      const retryUrl = String(pageState?.url || '').trim();
+      const consentLikeRetry = Boolean(
+        pageState?.consentReady
+        || pageState?.consentPage
+        || /\/sign-in-with-chatgpt\/[^/?#]+\/consent(?:[/?#]|$)/i.test(retryUrl)
+      );
+      if (!consentLikeRetry) {
+        throw new Error(`步骤 9：当前认证页已进入重试页，当前流程将直接报错。URL: ${pageState.url || 'unknown'}`);
+      }
     }
     if (pageState?.consentReady) {
       return pageState;
@@ -9311,7 +9705,15 @@ async function waitForStep8ClickEffect(tabId, baselineUrl, timeoutMs = STEP8_CLI
       throw new Error('步骤 9：点击“继续”后页面跳到了手机号页面，当前流程无法继续自动授权。');
     }
     if (pageState?.retryPage) {
-      throw new Error(`步骤 9：点击“继续”后页面进入认证页重试页，当前流程将直接报错。URL: ${pageState.url || baselineUrl || 'unknown'}`);
+      const retryUrl = String(pageState?.url || baselineUrl || '').trim();
+      const consentLikeRetry = Boolean(
+        pageState?.consentReady
+        || pageState?.consentPage
+        || /\/sign-in-with-chatgpt\/[^/?#]+\/consent(?:[/?#]|$)/i.test(retryUrl)
+      );
+      if (!consentLikeRetry) {
+        throw new Error(`步骤 9：点击“继续”后页面进入认证页重试页，当前流程将直接报错。URL: ${pageState.url || baselineUrl || 'unknown'}`);
+      }
     }
     if (pageState === null) {
       if (!recovered) {
@@ -9488,14 +9890,38 @@ chrome.runtime.onStartup.addListener(() => {
   restoreAutoRunTimerIfNeeded().catch((err) => {
     console.error(LOG_PREFIX, 'Failed to restore auto run timer on startup:', err);
   });
+  if (IP_PROXY_INIT_AUTO_APPLY) {
+    ensureIpProxySettingsAppliedFromCurrentState({
+      skipExitProbe: !IP_PROXY_INIT_ENABLE_EXIT_PROBE,
+      suppressAuthRebind: IP_PROXY_INIT_SUPPRESS_AUTH_REBIND,
+    }).catch((err) => {
+      console.error(LOG_PREFIX, 'Failed to restore IP proxy settings on startup:', err);
+    });
+  }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   restoreAutoRunTimerIfNeeded().catch((err) => {
     console.error(LOG_PREFIX, 'Failed to restore auto run timer on install/update:', err);
   });
+  if (IP_PROXY_INIT_AUTO_APPLY) {
+    ensureIpProxySettingsAppliedFromCurrentState({
+      skipExitProbe: !IP_PROXY_INIT_ENABLE_EXIT_PROBE,
+      suppressAuthRebind: IP_PROXY_INIT_SUPPRESS_AUTH_REBIND,
+    }).catch((err) => {
+      console.error(LOG_PREFIX, 'Failed to restore IP proxy settings on install/update:', err);
+    });
+  }
 });
 
 restoreAutoRunTimerIfNeeded().catch((err) => {
   console.error(LOG_PREFIX, 'Failed to restore auto run timer:', err);
 });
+if (IP_PROXY_INIT_AUTO_APPLY) {
+  ensureIpProxySettingsAppliedFromCurrentState({
+    skipExitProbe: !IP_PROXY_INIT_ENABLE_EXIT_PROBE,
+    suppressAuthRebind: IP_PROXY_INIT_SUPPRESS_AUTH_REBIND,
+  }).catch((err) => {
+    console.error(LOG_PREFIX, 'Failed to restore IP proxy settings:', err);
+  });
+}
