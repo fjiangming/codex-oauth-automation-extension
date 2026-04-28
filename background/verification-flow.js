@@ -129,6 +129,86 @@
       };
     }
 
+    async function detectStep8PostSubmitFallback(options = {}) {
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 9000);
+      const pollIntervalMs = Math.max(100, Number(options.pollIntervalMs) || 300);
+      const step = Number(options.step) || 8;
+      const startedAt = Date.now();
+      let lastSnapshot = null;
+
+      while (Date.now() - startedAt < timeoutMs) {
+        throwIfStopped();
+        try {
+          const request = {
+            type: 'GET_LOGIN_AUTH_STATE',
+            source: 'background',
+            payload: {},
+          };
+          const requestTimeoutMs = Math.max(1200, Math.min(5000, timeoutMs));
+          const result = typeof sendToContentScriptResilient === 'function'
+            ? await sendToContentScriptResilient(
+              'signup-page',
+              request,
+              {
+                timeoutMs: requestTimeoutMs,
+                responseTimeoutMs: requestTimeoutMs,
+                retryDelayMs: 400,
+                logMessage: `步骤 ${step}：验证码提交后页面正在切换，等待页面恢复并确认授权状态...`,
+              }
+            )
+            : await sendToContentScript('signup-page', request, {
+              responseTimeoutMs: requestTimeoutMs,
+            });
+
+          if (result?.error) {
+            throw new Error(result.error);
+          }
+
+          const authState = String(result?.state || '').trim();
+          const authUrl = String(result?.url || '').trim();
+          lastSnapshot = {
+            state: authState || 'unknown',
+            url: authUrl,
+          };
+
+          if (authState === 'oauth_consent_page') {
+            return {
+              success: true,
+              reason: 'oauth_consent_page',
+              addPhonePage: false,
+              url: authUrl,
+            };
+          }
+          if (authState === 'add_phone_page' || authState === 'phone_verification_page') {
+            return {
+              success: true,
+              reason: 'add_phone_page',
+              addPhonePage: true,
+              url: authUrl || 'https://auth.openai.com/add-phone',
+            };
+          }
+          if (authState === 'login_timeout_error_page') {
+            return {
+              success: false,
+              reason: 'login_timeout_error_page',
+              restartStep7: true,
+              url: authUrl,
+            };
+          }
+        } catch (_) {
+          // Ignore transient inspect failures and keep polling.
+        }
+
+        await sleepWithStop(pollIntervalMs);
+      }
+
+      return {
+        success: false,
+        reason: 'unknown',
+        snapshot: lastSnapshot,
+      };
+    }
+
     function getVerificationResendStateKey() {
       return 'verificationResendCount';
     }
@@ -772,6 +852,31 @@
               };
             }
           }
+          if (step === 8 && isRetryableVerificationTransportError(err)) {
+            const fallback = await detectStep8PostSubmitFallback({
+              step,
+              timeoutMs: 9000,
+              pollIntervalMs: 300,
+            });
+            if (fallback.success) {
+              if (fallback.addPhonePage) {
+                await addLog('步骤 8：验证码提交后通信中断，但页面已进入手机号验证页，按提交成功继续。', 'warn');
+              } else {
+                await addLog('步骤 8：验证码提交后通信中断，但页面已进入 OAuth 授权页，按提交成功继续。', 'warn');
+              }
+              return {
+                success: true,
+                assumed: true,
+                transportRecovered: true,
+                addPhonePage: Boolean(fallback.addPhonePage),
+                url: fallback.url || '',
+              };
+            }
+            if (fallback.restartStep7) {
+              const urlPart = fallback.url ? ` URL: ${fallback.url}` : '';
+              throw new Error(`STEP8_RESTART_STEP7::步骤 8：验证码提交后认证页进入登录超时报错页，请回到步骤 7 重新开始。${urlPart}`.trim());
+            }
+          }
           throw err;
         }
       } else {
@@ -812,7 +917,7 @@
           getLegacyVerificationResendCountDefault(step, { requestFreshCodeFirst })
         )
         : getConfiguredVerificationResendCount(step, state, { requestFreshCodeFirst });
-      const maxSubmitAttempts = 15;
+      const maxSubmitAttempts = mail.provider === LUCKMAIL_PROVIDER ? 3 : 15;
       const resendIntervalMs = Math.max(0, Number(options.resendIntervalMs) || 0);
       let lastResendAt = Number(options.lastResendAt) || 0;
 
@@ -895,6 +1000,12 @@
 
             if (attempt >= maxSubmitAttempts) {
               throw new Error(`步骤 ${step}：验证码连续失败，已达到 ${maxSubmitAttempts} 次重试上限。`);
+            }
+
+            if (mail.provider === LUCKMAIL_PROVIDER) {
+              await addLog(`步骤 ${step}：LuckMail 验证码提交失败，等待 15 秒后重新轮询 /code 接口（${attempt + 1}/${maxSubmitAttempts}）...`, 'warn');
+              await sleepWithStop(15000);
+              continue;
             }
 
             const remainingBeforeResendMs = resendIntervalMs > 0 && lastResendAt > 0

@@ -149,6 +149,7 @@
 
       const shouldRequestFreshCodeFirst = ![
         HOTMAIL_PROVIDER,
+        LUCKMAIL_PROVIDER,
         CLOUDFLARE_TEMP_EMAIL_PROVIDER,
       ].includes(mail.provider);
 
@@ -157,9 +158,11 @@
         sessionKey: verificationSessionKey,
         disableTimeBudgetCap: mail.provider === '2925',
         requestFreshCodeFirst: shouldRequestFreshCodeFirst,
-        resendIntervalMs: (mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
-          ? 0
-          : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
+        resendIntervalMs: mail.provider === LUCKMAIL_PROVIDER
+          ? 15000
+          : ((mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
+            ? 0
+            : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS),
       });
     }
 

@@ -8,6 +8,7 @@
       addLog,
       chrome,
       CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+      completeStepFromBackground,
       confirmCustomVerificationStepBypass,
       ensureMail2925MailboxSession,
       ensureIcloudMailSession,
@@ -66,6 +67,68 @@
 
     function normalizeStep8VerificationTargetEmail(value) {
       return String(value || '').trim().toLowerCase();
+    }
+
+    async function completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep, options = {}) {
+      await setState({
+        step8VerificationTargetEmail: '',
+        loginVerificationRequestedAt: null,
+      });
+      const fromRecovery = Boolean(options.fromRecovery);
+      await addLog(
+        `步骤 ${visibleStep}：当前认证页已进入 OAuth 授权页${fromRecovery ? '（轮询失败后复核）' : ''}，跳过登录验证码拉取并继续后续流程。`,
+        'warn'
+      );
+      if (typeof completeStepFromBackground === 'function') {
+        await completeStepFromBackground(visibleStep, {
+          loginVerificationRequestedAt: null,
+          skipLoginVerificationStep: true,
+          directOAuthConsentPage: true,
+        });
+      }
+    }
+
+    function isStep8AddPhoneStateError(error) {
+      const message = String(error?.message || error || '');
+      return /add-phone|手机号页面|手机号验证页|phone[\s-_]verification|phone\s+number/i.test(message);
+    }
+
+    async function recoverStep8PollingFailure(currentState, visibleStep) {
+      const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
+      try {
+        const pageState = await ensureStep8VerificationPageReady({
+          visibleStep,
+          authLoginStep,
+          timeoutMs: await getStep8ReadyTimeoutMs(
+            '登录验证码轮询异常后复核认证页状态',
+            currentState?.oauthUrl || '',
+            visibleStep
+          ),
+        });
+        if (pageState?.state === 'oauth_consent_page') {
+          await completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep, { fromRecovery: true });
+          return { outcome: 'completed' };
+        }
+        if (pageState?.state === 'verification_page') {
+          await addLog(
+            `步骤 ${visibleStep}：检测到邮箱轮询/页面通信异常，但认证页仍在验证码页，先在当前链路重试，不回到步骤 ${authLoginStep}。`,
+            'warn'
+          );
+          return { outcome: 'retry_without_step7' };
+        }
+      } catch (inspectError) {
+        if (isStep8RestartStep7Error(inspectError)) {
+          return { outcome: 'restart_step7', error: inspectError };
+        }
+        if (isStep8AddPhoneStateError(inspectError)) {
+          throw inspectError;
+        }
+        await addLog(
+          `步骤 ${visibleStep}：轮询失败后复核认证页状态异常：${inspectError?.message || inspectError}，将回到步骤 ${authLoginStep} 重试。`,
+          'warn'
+        );
+      }
+      return { outcome: 'restart_step7' };
     }
 
     function getExpectedMail2925MailboxEmail(state = {}) {
@@ -131,6 +194,10 @@
         authLoginStep: getAuthLoginStepForVisibleStep(visibleStep),
         timeoutMs: await getStep8ReadyTimeoutMs('确认登录验证码页已就绪', state?.oauthUrl || '', visibleStep),
       });
+      if (pageState?.state === 'oauth_consent_page') {
+        await completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep);
+        return;
+      }
       const shouldCompareVerificationEmail = mail.provider !== '2925';
       const displayedVerificationEmail = shouldCompareVerificationEmail
         ? normalizeStep8VerificationTargetEmail(pageState?.displayedEmail)
@@ -201,9 +268,11 @@
         getRemainingTimeMs: getStep8RemainingTimeResolver(state?.oauthUrl || '', visibleStep),
         requestFreshCodeFirst: false,
         targetEmail: fixedTargetEmail,
-        resendIntervalMs: (mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
-          ? 0
-          : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
+        resendIntervalMs: mail.provider === LUCKMAIL_PROVIDER
+          ? 15000
+          : ((mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
+            ? 0
+            : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS),
       });
     }
 
@@ -224,24 +293,47 @@
         } catch (err) {
           const visibleStep = getVisibleStep(currentState, 8);
           const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
-          if (!isVerificationMailPollingError(err) && !isStep8RestartStep7Error(err)) {
-            throw err;
+          let currentError = err;
+          let retryWithoutStep7 = false;
+          const isMailPollingError = isVerificationMailPollingError(err);
+          if (isMailPollingError && !isStep8RestartStep7Error(err)) {
+            const recovery = await recoverStep8PollingFailure(currentState, visibleStep);
+            if (recovery?.outcome === 'completed') {
+              return;
+            }
+            if (recovery?.outcome === 'retry_without_step7') {
+              retryWithoutStep7 = true;
+            }
+            if (recovery?.error) {
+              currentError = recovery.error;
+            }
+          }
+          if (!isVerificationMailPollingError(currentError) && !isStep8RestartStep7Error(currentError)) {
+            throw currentError;
           }
 
-          lastMailPollingError = err;
+          lastMailPollingError = currentError;
           if (mailPollingAttempt >= STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS) {
             break;
           }
 
           mailPollingAttempt += 1;
+          if (retryWithoutStep7) {
+            await addLog(
+              `步骤 ${visibleStep}：认证页仍保持在验证码页，将在当前链路直接重试（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}），不回到步骤 ${authLoginStep}。`,
+              'warn'
+            );
+            currentState = await getState();
+            continue;
+          }
           await addLog(
-            isStep8RestartStep7Error(err)
+            isStep8RestartStep7Error(currentError)
               ? `步骤 ${visibleStep}：检测到认证页进入重试/超时报错状态，准备从步骤 ${authLoginStep} 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`
               : `步骤 ${visibleStep}：检测到邮箱轮询类失败，准备从步骤 ${authLoginStep} 重新开始（${mailPollingAttempt}/${STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS}）...`,
             'warn'
           );
           await rerunStep7ForStep8Recovery({
-            logMessage: isStep8RestartStep7Error(err)
+            logMessage: isStep8RestartStep7Error(currentError)
               ? `步骤 ${visibleStep}：认证页进入重试/超时报错状态，正在回到步骤 ${authLoginStep} 重新发起登录流程...`
               : `步骤 ${visibleStep}：正在回到步骤 ${authLoginStep}，重新发起登录验证码流程...`,
           });
