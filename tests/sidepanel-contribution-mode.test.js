@@ -222,6 +222,7 @@ const inputAutoDelayMinutes = { value: '30' };
 const inputAutoStepDelaySeconds = { value: '10' };
 const inputVerificationResendCount = { value: '6' };
 const DEFAULT_VERIFICATION_RESEND_COUNT = 4;
+const DEFAULT_PHONE_VERIFICATION_REPLACEMENT_LIMIT = 3;
 
 function getCloudflareDomainsFromState() { return { domains: ['example.com'], activeDomain: 'example.com' }; }
 function normalizeCloudflareDomainValue(value) { return String(value || '').trim(); }

@@ -16,6 +16,7 @@
       getTabId,
       isTabAlive,
       prepareStep8DebuggerClick,
+      recoverOAuthLocalhostTimeout,
       reloadStep8ConsentPage,
       reuseOrCreateTab,
       sleepWithStop,
@@ -44,19 +45,43 @@
 
     async function executeStep9(state) {
       const visibleStep = getVisibleStep(state, 9);
-      if (!state.oauthUrl) {
+      let activeState = state;
+
+      if (!activeState.oauthUrl) {
         const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
         throw new Error(`缺少登录用 OAuth 链接，请先完成步骤 ${authLoginStep}。`);
       }
 
       await addLog(`步骤 ${visibleStep}：正在监听 localhost 回调地址...`);
 
-      const callbackTimeoutMs = typeof getOAuthFlowStepTimeoutMs === 'function'
-        ? await getOAuthFlowStepTimeoutMs(240000, {
-          step: visibleStep,
-          actionLabel: 'OAuth localhost 回调',
-        })
-        : 240000;
+      let callbackTimeoutMs = 240000;
+      let timeoutRecoveryAttempted = false;
+      while (true) {
+        try {
+          callbackTimeoutMs = typeof getOAuthFlowStepTimeoutMs === 'function'
+            ? await getOAuthFlowStepTimeoutMs(240000, {
+              step: visibleStep,
+              actionLabel: 'OAuth localhost 回调',
+              oauthUrl: activeState?.oauthUrl || '',
+            })
+            : 240000;
+          break;
+        } catch (error) {
+          if (timeoutRecoveryAttempted || typeof recoverOAuthLocalhostTimeout !== 'function') {
+            throw error;
+          }
+          const recoveredState = await recoverOAuthLocalhostTimeout({
+            error,
+            state: activeState,
+            visibleStep,
+          });
+          if (!recoveredState) {
+            throw error;
+          }
+          activeState = recoveredState;
+          timeoutRecoveryAttempted = true;
+        }
+      }
 
       return new Promise((resolve, reject) => {
         let resolved = false;
@@ -124,7 +149,7 @@
               await chrome.tabs.update(signupTabId, { active: true });
               await addLog(`步骤 ${visibleStep}：已切回认证页，正在准备调试器点击...`);
             } else {
-              signupTabId = await reuseOrCreateTab('signup-page', state.oauthUrl);
+              signupTabId = await reuseOrCreateTab('signup-page', activeState.oauthUrl);
               await addLog(`步骤 ${visibleStep}：已重新打开认证页，正在准备调试器点击...`);
             }
 

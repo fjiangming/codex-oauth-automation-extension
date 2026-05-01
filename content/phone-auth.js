@@ -18,6 +18,8 @@
       throwIfStopped,
       waitForElement,
     } = deps;
+    const PHONE_RESEND_THROTTLED_ERROR_PREFIX = 'PHONE_RESEND_THROTTLED::';
+    const PHONE_RESEND_THROTTLED_PATTERN = /tried\s+to\s+resend\s+too\s+many\s+times|please\s+try\s+again\s+later|too\s+many\s+resend|resend\s+too\s+many|发送.*过于频繁|稍后再试|重试次数过多/i;
 
     function dispatchInputEvents(element) {
       if (!element) return;
@@ -312,6 +314,90 @@
       return matches?.[0] ? matches[0].replace(/\s+/g, ' ').trim() : '';
     }
 
+    function getAddPhoneErrorText() {
+      const form = getAddPhoneForm();
+      if (!form) {
+        return '';
+      }
+
+      const messages = [];
+      const selectors = [
+        '.react-aria-FieldError',
+        '[slot="errorMessage"]',
+        '[id$="-error"]',
+        '[data-invalid="true"] + *',
+        '[aria-invalid="true"] + *',
+        '[class*="error"]',
+      ];
+      for (const selector of selectors) {
+        form.querySelectorAll(selector).forEach((el) => {
+          const text = String(el?.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text) {
+            messages.push(text);
+          }
+        });
+      }
+
+      const invalidInput = form.querySelector('input[aria-invalid="true"], input[data-invalid="true"]');
+      if (invalidInput) {
+        const wrapper = invalidInput.closest('form, [data-rac], div');
+        const text = String(wrapper?.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text) {
+          messages.push(text);
+        }
+      }
+
+      const preferred = messages.find((text) => (
+        /already|used|linked|eligible|invalid|phone|号码|手机号|错误|失败|try\s+again/i.test(text)
+      ));
+      return preferred || messages[0] || '';
+    }
+
+    function getPhoneVerificationInlineMessages() {
+      const form = getPhoneVerificationForm();
+      if (!form) {
+        return [];
+      }
+      const messages = [];
+      const selectors = [
+        '.react-aria-FieldError',
+        '[slot="errorMessage"]',
+        '[id$="-error"]',
+        '[data-invalid="true"] + *',
+        '[aria-invalid="true"] + *',
+        '[class*="error"]',
+      ];
+      for (const selector of selectors) {
+        form.querySelectorAll(selector).forEach((element) => {
+          const text = String(element?.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text) {
+            messages.push(text);
+          }
+        });
+      }
+      const verificationError = String(getVerificationErrorText?.() || '').trim();
+      if (verificationError) {
+        messages.push(verificationError);
+      }
+      return messages;
+    }
+
+    function getPhoneResendThrottleText() {
+      const inlineMatch = getPhoneVerificationInlineMessages()
+        .find((text) => PHONE_RESEND_THROTTLED_PATTERN.test(text));
+      if (inlineMatch) {
+        return inlineMatch;
+      }
+      const pageSnapshot = String(getPageTextSnapshot?.() || '').replace(/\s+/g, ' ').trim();
+      if (pageSnapshot && PHONE_RESEND_THROTTLED_PATTERN.test(pageSnapshot)) {
+        const concise = pageSnapshot.match(
+          /tried\s+to\s+resend\s+too\s+many\s+times[^.。!?]*[.。!?]?|please\s+try\s+again\s+later[^.。!?]*[.。!?]?|发送.*过于频繁[^。!?]*[。!?]?|稍后再试[^。!?]*[。!?]?/i
+        );
+        return String(concise?.[0] || pageSnapshot).trim();
+      }
+      return '';
+    }
+
     async function waitForAddPhoneReady(timeout = 20000) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
@@ -335,7 +421,27 @@
             url: location.href,
           };
         }
+        if (isAddPhonePageReady()) {
+          const errorText = getAddPhoneErrorText();
+          if (errorText) {
+            return {
+              addPhoneRejected: true,
+              errorText,
+              url: location.href,
+            };
+          }
+        }
         await sleep(150);
+      }
+      if (isAddPhonePageReady()) {
+        const errorText = getAddPhoneErrorText();
+        if (errorText) {
+          return {
+            addPhoneRejected: true,
+            errorText,
+            url: location.href,
+          };
+        }
       }
       throw new Error('Timed out waiting for phone verification page.');
     }
@@ -466,17 +572,30 @@
       const start = Date.now();
       while (Date.now() - start < timeout) {
         throwIfStopped();
+        const throttledText = getPhoneResendThrottleText();
+        if (throttledText) {
+          throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${throttledText}`);
+        }
         const resendButton = getPhoneVerificationResendButton({ allowDisabled: true });
         if (resendButton && isActionEnabled(resendButton)) {
           await humanPause(250, 700);
           simulateClick(resendButton);
           await sleep(1000);
+          const afterClickThrottleText = getPhoneResendThrottleText();
+          if (afterClickThrottleText) {
+            throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${afterClickThrottleText}`);
+          }
           return {
             resent: true,
             url: location.href,
           };
         }
         await sleep(250);
+      }
+
+      const timeoutThrottleText = getPhoneResendThrottleText();
+      if (timeoutThrottleText) {
+        throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${timeoutThrottleText}`);
       }
 
       throw new Error('Timed out waiting for the phone verification resend button.');

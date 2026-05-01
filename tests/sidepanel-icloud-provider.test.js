@@ -130,6 +130,64 @@ const inputAutoDelayMinutes = { value: '30' };
 const inputAutoStepDelaySeconds = { value: '' };
 const inputVerificationResendCount = { value: '4' };
 const DEFAULT_VERIFICATION_RESEND_COUNT = 4;
+const DEFAULT_PHONE_VERIFICATION_REPLACEMENT_LIMIT = 3;
+const DEFAULT_PHONE_CODE_WAIT_SECONDS = 60;
+const DEFAULT_PHONE_CODE_TIMEOUT_WINDOWS = 2;
+const DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS = 5;
+const DEFAULT_PHONE_CODE_POLL_MAX_ROUNDS = 4;
+const PHONE_CODE_WAIT_SECONDS_MIN = 15;
+const PHONE_CODE_WAIT_SECONDS_MAX = 300;
+const PHONE_CODE_TIMEOUT_WINDOWS_MIN = 1;
+const PHONE_CODE_TIMEOUT_WINDOWS_MAX = 10;
+const PHONE_CODE_POLL_INTERVAL_SECONDS_MIN = 1;
+const PHONE_CODE_POLL_INTERVAL_SECONDS_MAX = 30;
+const PHONE_CODE_POLL_MAX_ROUNDS_MIN = 1;
+const PHONE_CODE_POLL_MAX_ROUNDS_MAX = 120;
+const DEFAULT_HERO_SMS_REUSE_ENABLED = true;
+const HERO_SMS_ACQUIRE_PRIORITY_COUNTRY = 'country';
+const HERO_SMS_ACQUIRE_PRIORITY_PRICE = 'price';
+const DEFAULT_HERO_SMS_ACQUIRE_PRIORITY = HERO_SMS_ACQUIRE_PRIORITY_COUNTRY;
+const DEFAULT_HERO_SMS_COUNTRY_ID = 52;
+const DEFAULT_HERO_SMS_COUNTRY_LABEL = 'Thailand';
+const inputHeroSmsApiKey = { value: '' };
+const inputHeroSmsReuseEnabled = { checked: true };
+const selectHeroSmsAcquirePriority = { value: 'country' };
+const inputHeroSmsMaxPrice = { value: '' };
+const inputPhoneReplacementLimit = { value: '3' };
+const inputPhoneCodeWaitSeconds = { value: '60' };
+const inputPhoneCodeTimeoutWindows = { value: '2' };
+const inputPhoneCodePollIntervalSeconds = { value: '5' };
+const inputPhoneCodePollMaxRounds = { value: '4' };
+const selectHeroSmsCountry = { value: '52', selectedIndex: 0, options: [{ value: '52', textContent: 'Thailand' }] };
+function normalizeHeroSmsMaxPriceValue(value = '') { return String(value || '').trim(); }
+function normalizeHeroSmsReuseEnabledValue(value) { return value === undefined || value === null ? true : Boolean(value); }
+function normalizeHeroSmsAcquirePriority(value = '') { return String(value || '').trim().toLowerCase() === 'price' ? 'price' : 'country'; }
+function normalizeHeroSmsCountryId(value) { return Math.max(1, Math.floor(Number(value) || 52)); }
+function normalizeHeroSmsCountryLabel(value = '') { return String(value || '').trim() || 'Thailand'; }
+function normalizePhoneVerificationReplacementLimit(value, fallback = 3) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function normalizePhoneCodeWaitSecondsValue(value, fallback = 60) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function normalizePhoneCodeTimeoutWindowsValue(value, fallback = 2) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function normalizePhoneCodePollIntervalSecondsValue(value, fallback = 5) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function normalizePhoneCodePollMaxRoundsValue(value, fallback = 12) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function getSelectedHeroSmsCountryOption() { return { id: 52, label: 'Thailand' }; }
+function syncHeroSmsFallbackSelectionOrderFromSelect() { return [{ id: 52, label: 'Thailand' }]; }
+function getPayPalAccounts() { return []; }
+function getCurrentPayPalAccount() { return null; }
 function getCloudflareDomainsFromState() { return { domains: [], activeDomain: '' }; }
 function normalizeCloudflareDomainValue(value) { return String(value || '').trim(); }
 function getCloudflareTempEmailDomainsFromState() { return { domains: [], activeDomain: '' }; }
@@ -321,9 +379,14 @@ const inputVerificationResendCount = { value: '' };
 const inputPhoneVerificationEnabled = { checked: false };
 const DEFAULT_PHONE_VERIFICATION_ENABLED = false;
 const inputHeroSmsApiKey = { value: '' };
+const inputHeroSmsMaxPrice = { value: '' };
+const inputPhoneReplacementLimit = { value: '' };
 const selectHeroSmsCountry = { value: '52', options: [{ value: '52' }] };
 const inputRunCount = { value: '' };
 const DEFAULT_VERIFICATION_RESEND_COUNT = 4;
+const DEFAULT_PHONE_VERIFICATION_REPLACEMENT_LIMIT = 3;
+const PHONE_REPLACEMENT_LIMIT_MIN = 1;
+const PHONE_REPLACEMENT_LIMIT_MAX = 20;
 function syncLatestState(state) { latestState = { ...latestState, ...state }; }
 function syncAutoRunState() {}
 function syncPasswordField() {}
@@ -347,6 +410,12 @@ function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 
 function normalizeAutoDelayMinutes(value) { return Number(value) || 30; }
 function formatAutoStepDelayInputValue(value) { return value == null ? '' : String(value); }
 function normalizeVerificationResendCount(value, fallback) { return Number(value) || fallback; }
+function normalizeHeroSmsMaxPriceValue(value = '') { return String(value || '').trim(); }
+function normalizePhoneVerificationReplacementLimit(value, fallback = 3) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(PHONE_REPLACEMENT_LIMIT_MIN, Math.min(PHONE_REPLACEMENT_LIMIT_MAX, Math.floor(numeric)));
+}
 function normalizeHeroSmsCountryId() { return 52; }
 function getSelectedHeroSmsCountryOption() { return { label: 'Thailand' }; }
 function updateHeroSmsPlatformDisplay() {}

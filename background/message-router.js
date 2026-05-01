@@ -20,6 +20,7 @@
       clearStopRequest,
       closeLocalhostCallbackTabs,
       closeTabsByUrlPrefix,
+      completeStepFromBackground,
       deleteHotmailAccount,
       deleteHotmailAccounts,
       deleteIcloudAlias,
@@ -32,11 +33,14 @@
       executeStepViaCompletionSignal,
       exportSettingsBundle,
       fetchGeneratedEmail,
+      finalizePhoneActivationAfterSuccessfulFlow,
       finalizeStep3Completion,
       finalizeIcloudAliasAfterSuccessfulFlow,
       findHotmailAccount,
+      findPayPalAccount,
       flushCommand,
       getCurrentLuckmailPurchase,
+      getCurrentPayPalAccount,
       getCurrentMail2925Account,
       getPendingAutoRunTimerPlan,
       getSourceLabel,
@@ -62,6 +66,7 @@
       refreshIpProxyPool,
       normalizeHotmailAccounts,
       normalizeMail2925Accounts,
+      normalizePayPalAccounts,
       normalizeRunCount,
       AUTO_RUN_TIMER_KIND_SCHEDULED_START,
       notifyStepComplete,
@@ -79,6 +84,7 @@
       selectLuckmailPurchase,
       switchIpProxy,
       changeIpProxyExit,
+      setCurrentPayPalAccount,
       setCurrentMail2925Account,
       setCurrentHotmailAccount,
       setContributionMode,
@@ -99,7 +105,9 @@
       deleteMail2925Account,
       deleteMail2925Accounts,
       syncHotmailAccounts,
+      syncPayPalAccounts,
       testHotmailAccountMailAccess,
+      upsertPayPalAccount,
       upsertMail2925Account,
       upsertHotmailAccount,
       verifyHotmailAccount,
@@ -203,9 +211,33 @@
         });
       }
       await finalizeIcloudAliasAfterSuccessfulFlow(latestState);
+      if (typeof finalizePhoneActivationAfterSuccessfulFlow === 'function') {
+        await finalizePhoneActivationAfterSuccessfulFlow(latestState);
+      }
     }
 
     async function handleStepData(step, payload) {
+      if (step === 1) {
+        const updates = {};
+        if (payload.oauthUrl) {
+          updates.oauthUrl = payload.oauthUrl;
+          broadcastDataUpdate({ oauthUrl: payload.oauthUrl });
+        }
+        if (payload.sub2apiSessionId !== undefined) updates.sub2apiSessionId = payload.sub2apiSessionId || null;
+        if (payload.sub2apiOAuthState !== undefined) updates.sub2apiOAuthState = payload.sub2apiOAuthState || null;
+        if (payload.sub2apiGroupId !== undefined) updates.sub2apiGroupId = payload.sub2apiGroupId || null;
+        if (payload.sub2apiDraftName !== undefined) updates.sub2apiDraftName = payload.sub2apiDraftName || null;
+        if (payload.sub2apiProxyId !== undefined) updates.sub2apiProxyId = payload.sub2apiProxyId || null;
+        if (payload.cpaOAuthState !== undefined) updates.cpaOAuthState = payload.cpaOAuthState || null;
+        if (payload.cpaManagementOrigin !== undefined) updates.cpaManagementOrigin = payload.cpaManagementOrigin || null;
+        if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
+        if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
+        if (Object.keys(updates).length) {
+          await setState(updates);
+        }
+        return;
+      }
+
       const stateForStep = await getState();
       const stepKey = getStepKeyForState(step, stateForStep);
 
@@ -252,24 +284,6 @@
       }
 
       switch (step) {
-        case 1: {
-          const updates = {};
-          if (payload.oauthUrl) {
-            updates.oauthUrl = payload.oauthUrl;
-            broadcastDataUpdate({ oauthUrl: payload.oauthUrl });
-          }
-          if (payload.sub2apiSessionId !== undefined) updates.sub2apiSessionId = payload.sub2apiSessionId || null;
-          if (payload.sub2apiOAuthState !== undefined) updates.sub2apiOAuthState = payload.sub2apiOAuthState || null;
-          if (payload.sub2apiGroupId !== undefined) updates.sub2apiGroupId = payload.sub2apiGroupId || null;
-          if (payload.sub2apiDraftName !== undefined) updates.sub2apiDraftName = payload.sub2apiDraftName || null;
-          if (payload.sub2apiProxyId !== undefined) updates.sub2apiProxyId = payload.sub2apiProxyId || null;
-          if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
-          if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
-          if (Object.keys(updates).length) {
-            await setState(updates);
-          }
-          break;
-        }
         case 2:
           if (payload.email) {
             await setEmailState(payload.email);
@@ -402,6 +416,54 @@
             await appendManualAccountRunRecordIfNeeded(`step${message.step}_failed`, null, message.error);
             notifyStepError(message.step, message.error);
           }
+          return { ok: true };
+        }
+
+        case 'RESOLVE_PLUS_MANUAL_CONFIRMATION': {
+          const currentState = await getState();
+          const step = Number(message.payload?.step) || Number(currentState?.plusManualConfirmationStep) || 0;
+          const confirmed = Boolean(message.payload?.confirmed);
+          const requestId = String(message.payload?.requestId || '').trim();
+          const currentRequestId = String(currentState?.plusManualConfirmationRequestId || '').trim();
+          if (!currentState?.plusManualConfirmationPending) {
+            return { ok: true, ignored: true };
+          }
+          if (requestId && currentRequestId && requestId !== currentRequestId) {
+            return { ok: true, ignored: true };
+          }
+
+          const clearManualConfirmationState = {
+            plusManualConfirmationPending: false,
+            plusManualConfirmationRequestId: '',
+            plusManualConfirmationStep: 0,
+            plusManualConfirmationMethod: '',
+            plusManualConfirmationTitle: '',
+            plusManualConfirmationMessage: '',
+          };
+          await setState(clearManualConfirmationState);
+          if (typeof broadcastDataUpdate === 'function') {
+            broadcastDataUpdate(clearManualConfirmationState);
+          }
+
+          if (confirmed) {
+            const methodLabel = String(currentState?.plusManualConfirmationMethod || '').trim().toLowerCase() === 'gopay'
+              ? 'GoPay'
+              : '手动';
+            await addLog(`步骤 ${step}：已确认${methodLabel}订阅完成，准备继续下一步。`, 'ok');
+            await completeStepFromBackground(step, {
+              plusManualConfirmationMethod: currentState?.plusManualConfirmationMethod || '',
+              plusManualConfirmedAt: Date.now(),
+            });
+            return { ok: true };
+          }
+
+          const cancelMessage = String(currentState?.plusManualConfirmationMethod || '').trim().toLowerCase() === 'gopay'
+            ? '已取消 GoPay 订阅确认'
+            : '已取消当前手动确认';
+          await setStepStatus(step, 'failed');
+          await addLog(`步骤 ${step}：${cancelMessage}。`, 'warn');
+          await appendManualAccountRunRecordIfNeeded(`step${step}_failed`, null, cancelMessage);
+          notifyStepError(step, cancelMessage);
           return { ok: true };
         }
 
@@ -636,12 +698,19 @@
           const sessionUpdates = buildLuckmailSessionSettingsPayload(message.payload || {});
           const modeChanged = Object.prototype.hasOwnProperty.call(updates, 'plusModeEnabled')
             && Boolean(currentState?.plusModeEnabled) !== Boolean(updates.plusModeEnabled);
+          const plusPaymentChanged = Object.prototype.hasOwnProperty.call(updates, 'plusPaymentMethod')
+            && String(currentState?.plusPaymentMethod || 'paypal').trim().toLowerCase()
+              !== String(updates.plusPaymentMethod || 'paypal').trim().toLowerCase();
+          const nextPlusModeEnabled = Object.prototype.hasOwnProperty.call(updates, 'plusModeEnabled')
+            ? Boolean(updates.plusModeEnabled)
+            : Boolean(currentState?.plusModeEnabled);
+          const stepModeChanged = modeChanged || (nextPlusModeEnabled && plusPaymentChanged);
           await setPersistentSettings(updates);
           const stateUpdates = {
             ...updates,
             ...sessionUpdates,
           };
-          if (modeChanged && typeof getStepIdsForState === 'function') {
+          if (stepModeChanged && typeof getStepIdsForState === 'function') {
             const nextStateForSteps = { ...currentState, ...stateUpdates };
             stateUpdates.stepStatuses = Object.fromEntries(
               getStepIdsForState(nextStateForSteps).map((stepId) => [stepId, 'pending'])
@@ -681,12 +750,24 @@
             await setContributionMode(true);
           }
           if (modeChanged) {
+            const selectedPlusPaymentMethod = String(
+              (stateUpdates.plusPaymentMethod ?? currentState?.plusPaymentMethod ?? 'paypal')
+            ).trim().toLowerCase() === 'gopay'
+              ? 'GoPay'
+              : 'PayPal';
             await addLog(
               Boolean(updates.plusModeEnabled)
-                ? 'Plus 模式已开启，已切换为 Plus Checkout + PayPal 步骤。'
+                ? `Plus 模式已开启，已切换为 Plus Checkout 步骤，当前支付方式：${selectedPlusPaymentMethod}。`
                 : 'Plus 模式已关闭，已恢复普通注册授权步骤。',
               'info'
             );
+          } else if (plusPaymentChanged && nextPlusModeEnabled) {
+            const selectedPlusPaymentMethod = String(
+              stateUpdates.plusPaymentMethod ?? currentState?.plusPaymentMethod ?? 'paypal'
+            ).trim().toLowerCase() === 'gopay'
+              ? 'GoPay'
+              : 'PayPal';
+            await addLog(`Plus 鏀粯鏂瑰紡宸插垏鎹负 ${selectedPlusPaymentMethod}锛屽凡鏇存柊瀵瑰簲鐨?Plus 姝ラ銆?`, 'info');
           }
           return { ok: true, state: await getState(), proxyRouting };
         }
@@ -776,6 +857,16 @@
 
         case 'UPSERT_HOTMAIL_ACCOUNT': {
           const account = await upsertHotmailAccount(message.payload || {});
+          return { ok: true, account };
+        }
+
+        case 'UPSERT_PAYPAL_ACCOUNT': {
+          const account = await upsertPayPalAccount(message.payload || {});
+          return { ok: true, account };
+        }
+
+        case 'SELECT_PAYPAL_ACCOUNT': {
+          const account = await setCurrentPayPalAccount(String(message.payload?.accountId || ''));
           return { ok: true, account };
         }
 

@@ -222,6 +222,28 @@
       return Math.min(20, Math.max(0, Math.floor(numeric)));
     }
 
+    function getVerificationRequestedAtStateKey(step) {
+      if (Number(step) === 4) return 'signupVerificationRequestedAt';
+      if (Number(step) === 8) return 'loginVerificationRequestedAt';
+      return '';
+    }
+
+    function resolveInitialVerificationRequestedAt(step, state = {}, fallback = 0) {
+      const stateKey = getVerificationRequestedAtStateKey(step);
+      const candidateValues = [
+        fallback,
+        stateKey ? state?.[stateKey] : 0,
+      ];
+
+      for (const value of candidateValues) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          return Math.floor(numeric);
+        }
+      }
+      return 0;
+    }
+
     function getLegacyVerificationResendCountDefault(step, options = {}) {
       const requestFreshCodeFirst = Boolean(options.requestFreshCodeFirst);
       const legacyMaxRounds = Math.max(1, Math.floor(Number(VERIFICATION_POLL_MAX_ROUNDS) || 1));
@@ -675,6 +697,68 @@
       throw lastError || new Error(`步骤 ${step}：无法获取新的${getVerificationCodeLabel(step)}验证码。`);
     }
 
+    function shouldRequestLuckmailResendBeforeRetry(error) {
+      const message = String(error?.message || error || '');
+      if (!message) {
+        return true;
+      }
+
+      return !/没有可用 token|token 对应邮箱与当前邮箱不一致/i.test(message);
+    }
+
+    async function pollLuckmailVerificationCodeWithResend(step, state, pollOverrides = {}) {
+      const {
+        onResendRequestedAt,
+        maxRounds: _ignoredMaxRounds,
+        maxResendRequests: _ignoredMaxResendRequests,
+        ...cleanPollOverrides
+      } = pollOverrides;
+      const basePayload = {
+        ...getVerificationPollPayload(step, state),
+        ...cleanPollOverrides,
+      };
+      const maxAttempts = Math.max(1, Number(basePayload.maxAttempts) || 1);
+      const intervalMs = Math.max(15000, Number(basePayload.intervalMs) || 15000);
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        throwIfStopped();
+        try {
+          return await pollLuckmailVerificationCode(step, state, {
+            ...basePayload,
+            maxAttempts: 1,
+            intervalMs,
+          });
+        } catch (err) {
+          if (isStopError(err)) {
+            throw err;
+          }
+
+          lastError = err;
+          const canRetry = attempt < maxAttempts;
+          if (!canRetry) {
+            break;
+          }
+
+          if (shouldRequestLuckmailResendBeforeRetry(err)) {
+            try {
+              await requestVerificationCodeResend(step, pollOverrides);
+            } catch (resendError) {
+              if (isStopError(resendError)) {
+                throw resendError;
+              }
+              await addLog(`步骤 ${step}：LuckMail 点击重新发送验证码失败：${resendError.message}，仍将在 ${Math.ceil(intervalMs / 1000)} 秒后继续轮询 /code 接口。`, 'warn');
+            }
+          }
+
+          await addLog(`步骤 ${step}：LuckMail 暂未获取到新的${getVerificationCodeLabel(step)}验证码，等待 ${Math.ceil(intervalMs / 1000)} 秒后继续轮询 /code 接口（${attempt + 1}/${maxAttempts}）...`, 'warn');
+          await sleepWithStop(intervalMs);
+        }
+      }
+
+      throw lastError || new Error(`步骤 ${step}：无法获取新的${getVerificationCodeLabel(step)}验证码。`);
+    }
+
     async function pollFreshVerificationCode(step, state, mail, pollOverrides = {}) {
       const {
         onResendRequestedAt,
@@ -697,7 +781,11 @@
           ...getVerificationPollPayload(step, state),
           ...cleanPollOverrides,
         }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
-        return pollLuckmailVerificationCode(step, state, timedPoll.payload);
+        return pollLuckmailVerificationCodeWithResend(step, state, {
+          ...cleanPollOverrides,
+          ...timedPoll.payload,
+          onResendRequestedAt,
+        });
       }
       if (mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER) {
         const timedPoll = await applyMailPollingTimeBudget(step, {
@@ -919,9 +1007,23 @@
         : getConfiguredVerificationResendCount(step, state, { requestFreshCodeFirst });
       const maxSubmitAttempts = mail.provider === LUCKMAIL_PROVIDER ? 3 : 15;
       const resendIntervalMs = Math.max(0, Number(options.resendIntervalMs) || 0);
-      let lastResendAt = Number(options.lastResendAt) || 0;
+      const externalOnResendRequestedAt = typeof options.onResendRequestedAt === 'function'
+        ? options.onResendRequestedAt
+        : null;
+      let lastResendAt = resolveInitialVerificationRequestedAt(
+        step,
+        state,
+        Number(options.lastResendAt) || 0
+      );
 
-      const updateFilterAfterTimestampForVerificationStep = async (_requestedAt) => {
+      const updateFilterAfterTimestampForVerificationStep = async (requestedAt) => {
+        if (externalOnResendRequestedAt) {
+          try {
+            await externalOnResendRequestedAt(requestedAt);
+          } catch (_) {
+            // Keep resend flow best-effort; state sync callback failures should not break verification.
+          }
+        }
         return nextFilterAfterTimestamp;
       };
 

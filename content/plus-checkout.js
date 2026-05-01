@@ -5,17 +5,31 @@ console.log('[MultiPage:plus-checkout] Content script loaded on', location.href)
 window.__MULTIPAGE_PLUS_CHECKOUT_READY__ = true;
 
 const PLUS_CHECKOUT_LISTENER_SENTINEL = 'data-multipage-plus-checkout-listener';
-const PLUS_CHECKOUT_PAYLOAD = {
+const PLUS_CHECKOUT_BASE_PAYLOAD = {
   entry_point: 'all_plans_pricing_modal',
   plan_name: 'chatgptplusplan',
-  billing_details: {
-    country: 'DE',
-    currency: 'EUR',
-  },
   checkout_ui_mode: 'custom',
   promo_campaign: {
     promo_campaign_id: 'plus-1-month-free',
     is_coupon_from_query_param: false,
+  },
+};
+const PLUS_CHECKOUT_CONFIGS = {
+  paypal: {
+    billing_details: {
+      country: 'DE',
+      currency: 'EUR',
+    },
+    checkoutUrlPrefix: 'https://chatgpt.com/checkout/openai_ie/',
+    paymentLabel: 'PayPal',
+  },
+  gopay: {
+    billing_details: {
+      country: 'ID',
+      currency: 'IDR',
+    },
+    checkoutUrlPrefix: 'https://chatgpt.com/checkout/openai_llc/',
+    paymentLabel: 'GoPay',
   },
 };
 const PAYPAL_DIAGNOSTIC_LOG_INTERVAL_MS = 5000;
@@ -55,7 +69,7 @@ if (document.documentElement.getAttribute(PLUS_CHECKOUT_LISTENER_SENTINEL) !== '
 async function handlePlusCheckoutCommand(message) {
   switch (message.type) {
     case 'CREATE_PLUS_CHECKOUT':
-      return createPlusCheckoutSession();
+      return createPlusCheckoutSession(message.payload || {});
     case 'FILL_PLUS_BILLING_AND_SUBMIT':
       return fillPlusBillingAndSubmit(message.payload || {});
     case 'PLUS_CHECKOUT_SELECT_PAYPAL':
@@ -110,6 +124,27 @@ function isVisibleElement(el) {
 
 function normalizeText(text = '') {
   return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizePlusPaymentMethod(value = '') {
+  return String(value || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal';
+}
+
+function buildPlusCheckoutConfig(payload = {}) {
+  const paymentMethod = normalizePlusPaymentMethod(payload.paymentMethod);
+  const config = PLUS_CHECKOUT_CONFIGS[paymentMethod] || PLUS_CHECKOUT_CONFIGS.paypal;
+  return {
+    paymentMethod,
+    paymentLabel: config.paymentLabel,
+    checkoutUrlPrefix: config.checkoutUrlPrefix,
+    checkoutPayload: {
+      ...PLUS_CHECKOUT_BASE_PAYLOAD,
+      billing_details: {
+        country: config.billing_details.country,
+        currency: config.billing_details.currency,
+      },
+    },
+  };
 }
 
 function getActionText(el) {
@@ -400,8 +435,9 @@ function writePayPalDiagnostics(reason, level = 'info') {
   return diagnostics;
 }
 
-async function createPlusCheckoutSession() {
+async function createPlusCheckoutSession(payload = {}) {
   await waitForDocumentComplete();
+  const checkoutConfig = buildPlusCheckoutConfig(payload);
   log('Plus：正在读取 ChatGPT 登录会话...');
 
   const sessionResponse = await fetch('/api/auth/session', {
@@ -421,7 +457,7 @@ async function createPlusCheckoutSession() {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(PLUS_CHECKOUT_PAYLOAD),
+    body: JSON.stringify(checkoutConfig.checkoutPayload),
   });
 
   const data = await response.json().catch(() => ({}));
@@ -431,9 +467,10 @@ async function createPlusCheckoutSession() {
   }
 
   return {
-    checkoutUrl: `https://chatgpt.com/checkout/openai_ie/${data.checkout_session_id}`,
-    country: PLUS_CHECKOUT_PAYLOAD.billing_details.country,
-    currency: PLUS_CHECKOUT_PAYLOAD.billing_details.currency,
+    checkoutUrl: `${checkoutConfig.checkoutUrlPrefix}${data.checkout_session_id}`,
+    country: checkoutConfig.checkoutPayload.billing_details.country,
+    currency: checkoutConfig.checkoutPayload.billing_details.currency,
+    paymentMethod: checkoutConfig.paymentMethod,
   };
 }
 

@@ -14,7 +14,7 @@
     { id: 10, order: 100, key: 'platform-verify', title: '平台回调验证' },
   ];
 
-  const PLUS_STEP_DEFINITIONS = [
+  const PLUS_PAYPAL_STEP_DEFINITIONS = [
     { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网' },
     { id: 2, order: 20, key: 'submit-signup-email', title: '注册并输入邮箱' },
     { id: 3, order: 30, key: 'fill-password', title: '填写密码并继续' },
@@ -30,12 +30,35 @@
     { id: 13, order: 130, key: 'platform-verify', title: '平台回调验证' },
   ];
 
+  const PLUS_GOPAY_STEP_DEFINITIONS = [
+    { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网' },
+    { id: 2, order: 20, key: 'submit-signup-email', title: '注册并输入邮箱' },
+    { id: 3, order: 30, key: 'fill-password', title: '填写密码并继续' },
+    { id: 4, order: 40, key: 'fetch-signup-code', title: '获取注册验证码' },
+    { id: 5, order: 50, key: 'fill-profile', title: '填写姓名和生日' },
+    { id: 6, order: 60, key: 'plus-checkout-create', title: '打开 GoPay 订阅页' },
+    { id: 7, order: 70, key: 'gopay-subscription-confirm', title: '等待 GoPay 订阅确认' },
+    { id: 10, order: 100, key: 'oauth-login', title: '刷新 OAuth 并登录' },
+    { id: 11, order: 110, key: 'fetch-login-code', title: '获取登录验证码' },
+    { id: 12, order: 120, key: 'confirm-oauth', title: '自动确认 OAuth' },
+    { id: 13, order: 130, key: 'platform-verify', title: '平台回调验证' },
+  ];
+
   function isPlusModeEnabled(options = {}) {
     return Boolean(options?.plusModeEnabled || options?.plusMode);
   }
 
+  function normalizePlusPaymentMethod(value = '') {
+    return String(value || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal';
+  }
+
   function getModeStepDefinitions(options = {}) {
-    return isPlusModeEnabled(options) ? PLUS_STEP_DEFINITIONS : NORMAL_STEP_DEFINITIONS;
+    if (!isPlusModeEnabled(options)) {
+      return NORMAL_STEP_DEFINITIONS;
+    }
+    return normalizePlusPaymentMethod(options?.plusPaymentMethod || options?.paymentMethod) === 'gopay'
+      ? PLUS_GOPAY_STEP_DEFINITIONS
+      : PLUS_PAYPAL_STEP_DEFINITIONS;
   }
 
   function cloneSteps(steps = []) {
@@ -48,7 +71,11 @@
 
   function getAllSteps() {
     const keyed = new Map();
-    for (const step of [...NORMAL_STEP_DEFINITIONS, ...PLUS_STEP_DEFINITIONS]) {
+    for (const step of [
+      ...NORMAL_STEP_DEFINITIONS,
+      ...PLUS_PAYPAL_STEP_DEFINITIONS,
+      ...PLUS_GOPAY_STEP_DEFINITIONS,
+    ]) {
       keyed.set(`${step.id}:${step.key}`, step);
     }
     return cloneSteps(Array.from(keyed.values()).sort((left, right) => {
@@ -80,12 +107,15 @@
   return {
     STEP_DEFINITIONS: NORMAL_STEP_DEFINITIONS,
     NORMAL_STEP_DEFINITIONS,
-    PLUS_STEP_DEFINITIONS,
+    PLUS_STEP_DEFINITIONS: PLUS_PAYPAL_STEP_DEFINITIONS,
+    PLUS_PAYPAL_STEP_DEFINITIONS,
+    PLUS_GOPAY_STEP_DEFINITIONS,
     getAllSteps,
     getLastStepId,
     getStepById,
     getStepIds,
     getSteps,
     isPlusModeEnabled,
+    normalizePlusPaymentMethod,
   };
 });

@@ -14,6 +14,47 @@ const ipProxyActionState = {
   busy: false,
   action: '',
 };
+const IP_PROXY_SECTION_EXPANDED_STORAGE_KEY = 'multipage-ip-proxy-section-expanded';
+let ipProxySectionExpanded = false;
+
+function readIpProxySectionExpanded() {
+  try {
+    return globalThis.localStorage?.getItem(IP_PROXY_SECTION_EXPANDED_STORAGE_KEY) === '1';
+  } catch (err) {
+    return false;
+  }
+}
+
+function persistIpProxySectionExpanded(expanded) {
+  try {
+    if (expanded) {
+      globalThis.localStorage?.setItem(IP_PROXY_SECTION_EXPANDED_STORAGE_KEY, '1');
+    } else {
+      globalThis.localStorage?.removeItem(IP_PROXY_SECTION_EXPANDED_STORAGE_KEY);
+    }
+  } catch (err) {
+    // Ignore storage errors; the in-memory collapsed state is still enough for this session.
+  }
+}
+
+function setIpProxySectionExpanded(expanded) {
+  ipProxySectionExpanded = Boolean(expanded);
+  persistIpProxySectionExpanded(ipProxySectionExpanded);
+  if (typeof updateIpProxyUI === 'function') {
+    updateIpProxyUI(latestState);
+  }
+}
+
+function toggleIpProxySectionExpanded() {
+  setIpProxySectionExpanded(!ipProxySectionExpanded);
+}
+
+function initIpProxySectionExpandedState() {
+  ipProxySectionExpanded = readIpProxySectionExpanded();
+  if (typeof updateIpProxyUI === 'function') {
+    updateIpProxyUI(latestState);
+  }
+}
 
 function normalizeIpProxyActionType(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
@@ -866,14 +907,18 @@ function buildIpProxyActionHintText(options = {}) {
   const mode = normalizeIpProxyModeForCurrentRelease(options?.mode || DEFAULT_IP_PROXY_MODE);
   const poolCount = Math.max(0, Number(options?.poolCount) || 0);
   const changeAvailable = Boolean(options?.changeAvailable);
+  const dynamicPoolCount = poolCount > 0 ? poolCount : 1;
 
   if (mode === 'api') {
-    return '下一条：切到已拉取代理池的下一条。Change：仅账号模式可用。';
+    const nextPart = poolCount > 1
+      ? `下一条：当前共 ${dynamicPoolCount} 条节点，切到已拉取代理池的下一条节点。`
+      : `下一条：当前仅 ${dynamicPoolCount} 条节点，执行重绑复测（不保证更换出口）。`;
+    return `${nextPart} Change：仅账号模式可用。`;
   }
 
   const nextPart = poolCount > 1
-    ? '下一条：切到代理池的下一条节点。'
-    : '下一条：当前仅 1 条节点，执行重绑复测（不保证更换出口）。';
+    ? `下一条：当前共 ${dynamicPoolCount} 条节点，切到代理池的下一条节点。`
+    : `下一条：当前仅 ${dynamicPoolCount} 条节点，执行重绑复测（不保证更换出口）。`;
   const changePart = changeAvailable
     ? 'Change：保持当前 session 重绑链路并复测出口。'
     : 'Change：需 711 账号模式且用户名包含 session。';
@@ -890,7 +935,6 @@ function setIpProxyCurrentDisplay(text = '', hasValue = false) {
 function formatIpProxyCurrentDisplay(state = latestState) {
   const mode = normalizeIpProxyModeForCurrentRelease(state?.ipProxyMode);
   if (mode === 'account') {
-    const runtime = getIpProxyRuntimeSnapshot(state, mode);
     const current = getIpProxyCurrentEntry(state);
     if (!current) {
       return {
@@ -898,10 +942,8 @@ function formatIpProxyCurrentDisplay(state = latestState) {
         hasValue: false,
       };
     }
-    const count = runtime.pool.length > 0 ? runtime.pool.length : 1;
-    const index = runtime.index;
     return {
-      text: `${current.host}:${current.port}${current.region ? ` [${current.region}]` : ''} (${Math.min(index + 1, count)}/${count})`,
+      text: `${current.host}:${current.port}${current.region ? ` [${current.region}]` : ''}`,
       hasValue: true,
     };
   }
@@ -919,7 +961,7 @@ function formatIpProxyCurrentDisplay(state = latestState) {
   const region = String(current.region || '').trim();
   const label = region ? `${current.host}:${current.port} [${region}]` : `${current.host}:${current.port}`;
   return {
-    text: `${label}${count ? ` (${Math.min(index + 1, count)}/${count})` : ''}`,
+    text: label,
     hasValue: true,
   };
 }
@@ -945,19 +987,7 @@ function buildIpProxyCurrentDisplayText(display = {}, runtimeStatus = {}) {
   if (!hasValue || !rawText) {
     return rawText;
   }
-  const runtimeText = String(runtimeStatus?.text || '').trim().toLowerCase();
-  if (!runtimeText) {
-    return rawText;
-  }
-  const endpointToken = extractIpProxyEndpointToken(rawText);
-  if (!endpointToken || !runtimeText.includes(endpointToken)) {
-    return rawText;
-  }
-  const indexToken = extractIpProxyIndexToken(rawText);
-  if (indexToken) {
-    return `节点 ${indexToken}`;
-  }
-  return '当前节点';
+  return rawText;
 }
 
 function formatIpProxyRuntimeStatus(state = latestState) {
@@ -1158,6 +1188,7 @@ function setIpProxyEnabledInlineStatus(state = {}, enabled = getSelectedIpProxyE
 
 function updateIpProxyUI(state = latestState) {
   const enabled = getSelectedIpProxyEnabled();
+  const showSettings = enabled && ipProxySectionExpanded;
   const mode = getSelectedIpProxyMode();
   const service = normalizeIpProxyService(selectIpProxyService?.value || state?.ipProxyService || DEFAULT_IP_PROXY_SERVICE);
   const apiModeAvailable = isIpProxyApiModeAvailable();
@@ -1172,64 +1203,70 @@ function updateIpProxyUI(state = latestState) {
   const busyAction = normalizeIpProxyActionType(actionState.action);
   const runtimeState = state || latestState || {};
 
-  setIpProxyEnabledInlineStatus(runtimeState, enabled);
-
   if (rowIpProxyEnabled) {
     rowIpProxyEnabled.style.display = '';
   }
+  if (btnToggleIpProxySection) {
+    btnToggleIpProxySection.disabled = !enabled;
+    btnToggleIpProxySection.textContent = showSettings ? '收起设置' : '展开设置';
+    btnToggleIpProxySection.title = enabled
+      ? (showSettings ? '收起 IP 代理设置' : '展开 IP 代理设置')
+      : '开启 IP 代理后可展开设置';
+    btnToggleIpProxySection.setAttribute('aria-expanded', String(showSettings));
+  }
   if (rowIpProxyFold) {
-    rowIpProxyFold.style.display = enabled ? '' : 'none';
+    rowIpProxyFold.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyService) {
-    rowIpProxyService.style.display = enabled ? '' : 'none';
+    rowIpProxyService.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyMode) {
-    rowIpProxyMode.style.display = enabled ? '' : 'none';
+    rowIpProxyMode.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyLayout) {
-    rowIpProxyLayout.style.display = enabled ? '' : 'none';
+    rowIpProxyLayout.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyApiUrl) {
-    rowIpProxyApiUrl.style.display = enabled && apiModeAvailable && isApiMode ? '' : 'none';
+    rowIpProxyApiUrl.style.display = showSettings && apiModeAvailable && isApiMode ? '' : 'none';
   }
   if (rowIpProxyAccountList) {
-    rowIpProxyAccountList.style.display = enabled && isAccountMode && accountListAvailable ? '' : 'none';
+    rowIpProxyAccountList.style.display = showSettings && isAccountMode && accountListAvailable ? '' : 'none';
   }
   if (rowIpProxyAccountSessionPrefix) {
-    rowIpProxyAccountSessionPrefix.style.display = enabled && showSessionOptions ? '' : 'none';
+    rowIpProxyAccountSessionPrefix.style.display = showSettings && showSessionOptions ? '' : 'none';
   }
   if (rowIpProxyAccountLifeMinutes) {
-    rowIpProxyAccountLifeMinutes.style.display = enabled && showSessionOptions ? '' : 'none';
+    rowIpProxyAccountLifeMinutes.style.display = showSettings && showSessionOptions ? '' : 'none';
   }
   if (rowIpProxyPoolTargetCount) {
-    rowIpProxyPoolTargetCount.style.display = enabled ? '' : 'none';
+    rowIpProxyPoolTargetCount.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyHost) {
-    rowIpProxyHost.style.display = enabled && isAccountMode ? '' : 'none';
+    rowIpProxyHost.style.display = showSettings && isAccountMode ? '' : 'none';
   }
   if (rowIpProxyPort) {
-    rowIpProxyPort.style.display = enabled && isAccountMode ? '' : 'none';
+    rowIpProxyPort.style.display = showSettings && isAccountMode ? '' : 'none';
   }
   if (rowIpProxyProtocol) {
-    rowIpProxyProtocol.style.display = enabled ? '' : 'none';
+    rowIpProxyProtocol.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyUsername) {
-    rowIpProxyUsername.style.display = enabled && isAccountMode ? '' : 'none';
+    rowIpProxyUsername.style.display = showSettings && isAccountMode ? '' : 'none';
   }
   if (rowIpProxyPassword) {
-    rowIpProxyPassword.style.display = enabled && isAccountMode ? '' : 'none';
+    rowIpProxyPassword.style.display = showSettings && isAccountMode ? '' : 'none';
   }
   if (rowIpProxyRegion) {
-    rowIpProxyRegion.style.display = enabled && isAccountMode ? '' : 'none';
+    rowIpProxyRegion.style.display = showSettings && isAccountMode ? '' : 'none';
   }
   if (rowIpProxyActions) {
-    rowIpProxyActions.style.display = enabled ? '' : 'none';
+    rowIpProxyActions.style.display = showSettings ? '' : 'none';
   }
   if (ipProxyActionButtons) {
-    ipProxyActionButtons.style.display = enabled ? '' : 'none';
+    ipProxyActionButtons.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyRuntimeStatus) {
-    rowIpProxyRuntimeStatus.style.display = enabled ? '' : 'none';
+    rowIpProxyRuntimeStatus.style.display = showSettings ? '' : 'none';
   }
   if (ipProxyLayout) {
     ipProxyLayout.classList.toggle('is-account-only', !apiModeAvailable);
@@ -1256,7 +1293,7 @@ function updateIpProxyUI(state = latestState) {
     ipProxyApiPanel.classList.toggle('is-disabled', !apiModeAvailable);
     ipProxyApiPanel.setAttribute('aria-disabled', String(!apiModeAvailable));
     ipProxyApiPanel.hidden = !apiModeAvailable;
-    ipProxyApiPanel.style.display = enabled && apiModeAvailable ? '' : 'none';
+    ipProxyApiPanel.style.display = showSettings && apiModeAvailable ? '' : 'none';
   }
   if (inputIpProxyApiUrl) {
     inputIpProxyApiUrl.disabled = !enabled || !apiModeAvailable;
@@ -1305,11 +1342,12 @@ function updateIpProxyUI(state = latestState) {
   setIpProxyCurrentDisplay(currentDisplayText, currentDisplay.hasValue);
   const runtimeSnapshot = getIpProxyRuntimeSnapshot(runtimeState, mode, service);
   const runtimePoolCount = Array.isArray(runtimeSnapshot?.pool) ? runtimeSnapshot.pool.length : 0;
+  const runtimePoolCountForDisplay = runtimePoolCount > 0 ? runtimePoolCount : 1;
   const hasCurrentEntry = Boolean(getIpProxyCurrentEntry(runtimeState));
   const changeAvailable = canChangeIpProxyExitWithCurrentSession(runtimeState);
   const nextActionTitle = runtimePoolCount > 1
-    ? '切换到代理池下一条节点并应用'
-    : '当前仅 1 条节点：重绑当前节点并复测连通性（不保证更换出口）';
+    ? `切换到代理池下一条节点并应用（当前共 ${runtimePoolCountForDisplay} 条）`
+    : `当前仅 ${runtimePoolCountForDisplay} 条节点：重绑当前节点并复测连通性（不保证更换出口）`;
 
   if (btnIpProxyRefresh) {
     btnIpProxyRefresh.disabled = actionBusy || !enabled || !canOperate;

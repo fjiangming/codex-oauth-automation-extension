@@ -13,23 +13,51 @@
       sleepWithStop,
       throwIfStopped,
       DEFAULT_HERO_SMS_BASE_URL = 'https://hero-sms.com/stubs/handler_api.php',
+      DEFAULT_HERO_SMS_REUSE_ENABLED = true,
       HERO_SMS_COUNTRY_ID = 52,
       HERO_SMS_COUNTRY_LABEL = 'Thailand',
       HERO_SMS_SERVICE_CODE = 'dr',
       HERO_SMS_SERVICE_LABEL = 'OpenAI',
+      DEFAULT_PHONE_CODE_WAIT_SECONDS = 60,
+      DEFAULT_PHONE_CODE_TIMEOUT_WINDOWS = 2,
+      DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS = 5,
+      DEFAULT_PHONE_CODE_POLL_ROUNDS = 4,
     } = deps;
 
     const PHONE_ACTIVATION_STATE_KEY = 'currentPhoneActivation';
+    const PHONE_VERIFICATION_CODE_STATE_KEY = 'currentPhoneVerificationCode';
     const REUSABLE_PHONE_ACTIVATION_STATE_KEY = 'reusablePhoneActivation';
-    const DEFAULT_PHONE_POLL_INTERVAL_MS = 5000;
+    const HERO_SMS_LAST_PRICE_TIERS_KEY = 'heroSmsLastPriceTiers';
+    const HERO_SMS_LAST_PRICE_COUNTRY_ID_KEY = 'heroSmsLastPriceCountryId';
+    const HERO_SMS_LAST_PRICE_COUNTRY_LABEL_KEY = 'heroSmsLastPriceCountryLabel';
+    const HERO_SMS_LAST_PRICE_USER_LIMIT_KEY = 'heroSmsLastPriceUserLimit';
+    const HERO_SMS_LAST_PRICE_AT_KEY = 'heroSmsLastPriceAt';
+    const PHONE_CODE_WAIT_SECONDS_MIN = 15;
+    const PHONE_CODE_WAIT_SECONDS_MAX = 300;
+    const PHONE_CODE_TIMEOUT_WINDOWS_MIN = 1;
+    const PHONE_CODE_TIMEOUT_WINDOWS_MAX = 10;
+    const PHONE_CODE_POLL_INTERVAL_SECONDS_MIN = 1;
+    const PHONE_CODE_POLL_INTERVAL_SECONDS_MAX = 30;
+    const PHONE_CODE_POLL_ROUNDS_MIN = 1;
+    const PHONE_CODE_POLL_ROUNDS_MAX = 120;
+    const DEFAULT_PHONE_POLL_INTERVAL_MS = DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS * 1000;
     const DEFAULT_PHONE_POLL_TIMEOUT_MS = 180000;
     const DEFAULT_PHONE_REQUEST_TIMEOUT_MS = 20000;
     const DEFAULT_PHONE_SUBMIT_ATTEMPTS = 3;
-    const DEFAULT_PHONE_CODE_WAIT_WINDOW_MS = 60000;
     const DEFAULT_PHONE_NUMBER_MAX_USES = 3;
+    const DEFAULT_PHONE_NUMBER_REPLACEMENT_LIMIT = 3;
     const DEFAULT_PHONE_PRICE_LOOKUP_ATTEMPTS = 3;
+    const MAX_PHONE_PRICE_CANDIDATES = 8;
+    const DEFAULT_PHONE_ACTIVATION_RETRY_ROUNDS = 3;
+    const PHONE_ACTIVATION_RETRY_ROUNDS_MIN = 1;
+    const PHONE_ACTIVATION_RETRY_ROUNDS_MAX = 10;
+    const DEFAULT_PHONE_ACTIVATION_RETRY_DELAY_MS = 2000;
+    const HERO_SMS_ACQUIRE_PRIORITY_COUNTRY = 'country';
+    const HERO_SMS_ACQUIRE_PRIORITY_PRICE = 'price';
     const PHONE_CODE_TIMEOUT_ERROR_PREFIX = 'PHONE_CODE_TIMEOUT::';
     const PHONE_RESTART_STEP7_ERROR_PREFIX = 'PHONE_RESTART_STEP7::';
+    const PHONE_RESEND_THROTTLED_ERROR_PREFIX = 'PHONE_RESEND_THROTTLED::';
+    const PHONE_SMS_FAILURE_SKIP_THRESHOLD = 2;
 
     function normalizeUrl(value, fallback = DEFAULT_HERO_SMS_BASE_URL) {
       const trimmed = String(value || '').trim();
@@ -51,11 +79,177 @@
       return Math.max(0, Math.floor(Number(value) || 0));
     }
 
+    function normalizePhoneReplacementLimit(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_NUMBER_REPLACEMENT_LIMIT;
+      }
+      return Math.max(1, Math.min(20, parsed));
+    }
+
+    function normalizePhoneActivationRetryRounds(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_ACTIVATION_RETRY_ROUNDS;
+      }
+      return Math.max(PHONE_ACTIVATION_RETRY_ROUNDS_MIN, Math.min(PHONE_ACTIVATION_RETRY_ROUNDS_MAX, parsed));
+    }
+
+    function normalizePhoneActivationRetryDelayMs(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_ACTIVATION_RETRY_DELAY_MS;
+      }
+      return Math.max(500, Math.min(30000, parsed));
+    }
+
+    function normalizeHeroSmsPriceLimit(value) {
+      if (value === undefined || value === null || String(value).trim() === '') {
+        return null;
+      }
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return null;
+      }
+      return Math.round(parsed * 10000) / 10000;
+    }
+
+    function isPhoneNumberUsedError(value) {
+      const text = String(value || '').trim();
+      if (!text) {
+        return false;
+      }
+      return /already\s+linked\s+to\s+the\s+maximum\s+number\s+of\s+accounts|phone\s+number\s+is\s+already\s+(?:in\s+use|linked|registered)|phone\s+number\s+has\s+already\s+been\s+used|already\s+associated\s+with\s+another\s+account|not\s+eligible\s+to\s+be\s+used|cannot\s+be\s+used\s+for\s+verification|号码.*(?:已|被).*(?:使用|占用|绑定|注册)|手机号.*(?:已|被).*(?:使用|占用|绑定|注册)|该手机号.*(?:已|被).*(?:使用|占用|绑定|注册)/i.test(text);
+    }
+
+    function normalizeCountryId(value, fallback = HERO_SMS_COUNTRY_ID) {
+      const parsed = Math.floor(Number(value));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+      const fallbackParsed = Math.floor(Number(fallback));
+      if (Number.isFinite(fallbackParsed) && fallbackParsed > 0) {
+        return fallbackParsed;
+      }
+      return 0;
+    }
+
+    function normalizeCountryLabel(value = '', fallback = HERO_SMS_COUNTRY_LABEL) {
+      return String(value || '').trim() || fallback;
+    }
+
+    function normalizePhoneCodeWaitSeconds(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_CODE_WAIT_SECONDS;
+      }
+      return Math.max(PHONE_CODE_WAIT_SECONDS_MIN, Math.min(PHONE_CODE_WAIT_SECONDS_MAX, parsed));
+    }
+
+    function normalizePhoneCodeTimeoutWindows(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_CODE_TIMEOUT_WINDOWS;
+      }
+      return Math.max(PHONE_CODE_TIMEOUT_WINDOWS_MIN, Math.min(PHONE_CODE_TIMEOUT_WINDOWS_MAX, parsed));
+    }
+
+    function normalizePhoneCodePollIntervalSeconds(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS;
+      }
+      return Math.max(PHONE_CODE_POLL_INTERVAL_SECONDS_MIN, Math.min(PHONE_CODE_POLL_INTERVAL_SECONDS_MAX, parsed));
+    }
+
+    function normalizePhoneCodePollMaxRounds(value) {
+      const parsed = Math.floor(Number(value));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PHONE_CODE_POLL_ROUNDS;
+      }
+      return Math.max(PHONE_CODE_POLL_ROUNDS_MIN, Math.min(PHONE_CODE_POLL_ROUNDS_MAX, parsed));
+    }
+
+    function normalizeHeroSmsReuseEnabled(value) {
+      if (value === undefined || value === null) {
+        return Boolean(DEFAULT_HERO_SMS_REUSE_ENABLED);
+      }
+      return Boolean(value);
+    }
+
+    function normalizeHeroSmsAcquirePriority(value = '') {
+      return String(value || '').trim().toLowerCase() === HERO_SMS_ACQUIRE_PRIORITY_PRICE
+        ? HERO_SMS_ACQUIRE_PRIORITY_PRICE
+        : HERO_SMS_ACQUIRE_PRIORITY_COUNTRY;
+    }
+
+    function normalizeCountryFallbackList(value = []) {
+      const source = Array.isArray(value)
+        ? value
+        : String(value || '')
+          .split(/[\r\n,，;；]+/)
+          .map((entry) => String(entry || '').trim())
+          .filter(Boolean);
+      const seen = new Set();
+      const normalized = [];
+
+      for (const entry of source) {
+        let id = 0;
+        let label = '';
+
+        if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+          id = normalizeCountryId(entry.id ?? entry.countryId, 0);
+          label = String((entry.label ?? entry.countryLabel) || '').trim();
+        } else {
+          const text = String(entry || '').trim();
+          const structured = text.match(/^(\d+)\s*(?:[:|/-]\s*(.+))?$/);
+          if (structured) {
+            id = normalizeCountryId(structured[1], 0);
+            label = String(structured[2] || '').trim();
+          } else {
+            id = normalizeCountryId(text, 0);
+          }
+        }
+
+        if (!Number.isFinite(id) || id <= 0 || seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        normalized.push({
+          id,
+          label: label || `Country #${id}`,
+        });
+      }
+
+      return normalized;
+    }
+
     function resolveCountryConfig(state = {}) {
       return {
-        id: Math.max(1, Math.floor(Number(state.heroSmsCountryId) || HERO_SMS_COUNTRY_ID)),
-        label: String(state.heroSmsCountryLabel || HERO_SMS_COUNTRY_LABEL).trim() || HERO_SMS_COUNTRY_LABEL,
+        id: normalizeCountryId(state.heroSmsCountryId, HERO_SMS_COUNTRY_ID),
+        label: normalizeCountryLabel(state.heroSmsCountryLabel, HERO_SMS_COUNTRY_LABEL),
       };
+    }
+
+    function resolveCountryCandidates(state = {}) {
+      const primary = resolveCountryConfig(state);
+      const fallbackList = normalizeCountryFallbackList(state.heroSmsCountryFallback);
+      const seen = new Set([primary.id]);
+      const candidates = [primary];
+
+      fallbackList.forEach((entry) => {
+        const nextId = normalizeCountryId(entry.id, 0);
+        if (!Number.isFinite(nextId) || nextId <= 0 || seen.has(nextId)) {
+          return;
+        }
+        seen.add(nextId);
+        candidates.push({
+          id: nextId,
+          label: normalizeCountryLabel(entry.label, `Country #${nextId}`),
+        });
+      });
+
+      return candidates;
     }
 
     function normalizeActivation(record) {
@@ -72,12 +266,14 @@
         return null;
       }
       const statusAction = String(record.statusAction || '').trim();
+      const countryLabel = String(record.countryLabel || '').trim();
       return {
         activationId,
         phoneNumber,
         provider: String(record.provider || 'hero-sms').trim() || 'hero-sms',
         serviceCode: String(record.serviceCode || HERO_SMS_SERVICE_CODE).trim() || HERO_SMS_SERVICE_CODE,
-        countryId: Number(record.countryId) || HERO_SMS_COUNTRY_ID,
+        countryId: normalizeCountryId(record.countryId, HERO_SMS_COUNTRY_ID),
+        ...(countryLabel ? { countryLabel } : {}),
         successfulUses: normalizeUseCount(record.successfulUses),
         maxUses: Math.max(1, Math.floor(Number(record.maxUses) || DEFAULT_PHONE_NUMBER_MAX_USES)),
         ...(statusAction ? { statusAction } : {}),
@@ -93,6 +289,7 @@
       const provider = String(record.provider || '').trim();
       const serviceCode = String(record.serviceCode || '').trim();
       const countryId = Math.floor(Number(record.countryId));
+      const countryLabel = String(record.countryLabel || '').trim();
       const statusAction = String(record.statusAction || '').trim();
 
       if (provider) {
@@ -103,6 +300,9 @@
       }
       if (Number.isFinite(countryId) && countryId > 0) {
         fallback.countryId = countryId;
+      }
+      if (countryLabel) {
+        fallback.countryLabel = countryLabel;
       }
       if (Object.prototype.hasOwnProperty.call(record, 'successfulUses')) {
         fallback.successfulUses = normalizeUseCount(record.successfulUses);
@@ -172,6 +372,17 @@
 
     function isPhoneCodeTimeoutError(error) {
       return String(error?.message || '').startsWith(PHONE_CODE_TIMEOUT_ERROR_PREFIX);
+    }
+
+    function isPhoneResendThrottledError(error) {
+      const message = String(error?.message || error || '').trim();
+      if (!message) {
+        return false;
+      }
+      if (message.startsWith(PHONE_RESEND_THROTTLED_ERROR_PREFIX)) {
+        return true;
+      }
+      return /tried\s+to\s+resend\s+too\s+many\s+times|please\s+try\s+again\s+later|too\s+many\s+resend|resend\s+too\s+many|发送.*过于频繁|稍后再试/i.test(message);
     }
 
     function buildPhoneRestartStep7Error(phoneNumber = '') {
@@ -252,31 +463,37 @@
       const directActivation = normalizeActivation(payload);
       if (directActivation) {
         const statusAction = normalizedFallback?.statusAction || directActivation.statusAction;
-        return {
-          ...directActivation,
-          provider: normalizedFallback?.provider || directActivation.provider,
-          serviceCode: normalizedFallback?.serviceCode || directActivation.serviceCode,
-          countryId: normalizedFallback?.countryId || directActivation.countryId,
-          successfulUses: normalizedFallback?.successfulUses ?? directActivation.successfulUses,
-          maxUses: normalizedFallback?.maxUses ?? directActivation.maxUses,
-          ...(statusAction ? { statusAction } : {}),
-        };
-      }
+          return {
+            ...directActivation,
+            provider: normalizedFallback?.provider || directActivation.provider,
+            serviceCode: normalizedFallback?.serviceCode || directActivation.serviceCode,
+            countryId: normalizedFallback?.countryId || directActivation.countryId,
+            ...(
+              normalizedFallback?.countryLabel || directActivation.countryLabel
+                ? { countryLabel: normalizedFallback?.countryLabel || directActivation.countryLabel }
+                : {}
+            ),
+            successfulUses: normalizedFallback?.successfulUses ?? directActivation.successfulUses,
+            maxUses: normalizedFallback?.maxUses ?? directActivation.maxUses,
+            ...(statusAction ? { statusAction } : {}),
+          };
+        }
 
       const text = describeHeroSmsPayload(payload);
       const accessNumberMatch = text.match(/^ACCESS_NUMBER:([^:]+):(.+)$/i);
       if (accessNumberMatch) {
-        return {
-          activationId: String(accessNumberMatch[1] || '').trim(),
-          phoneNumber: String(accessNumberMatch[2] || '').trim(),
-          provider: normalizedFallback?.provider || 'hero-sms',
-          serviceCode: normalizedFallback?.serviceCode || HERO_SMS_SERVICE_CODE,
-          countryId: normalizedFallback?.countryId || HERO_SMS_COUNTRY_ID,
-          successfulUses: normalizedFallback?.successfulUses ?? 0,
-          maxUses: normalizedFallback?.maxUses ?? DEFAULT_PHONE_NUMBER_MAX_USES,
-          ...(normalizedFallback?.statusAction ? { statusAction: normalizedFallback.statusAction } : {}),
-        };
-      }
+          return {
+            activationId: String(accessNumberMatch[1] || '').trim(),
+            phoneNumber: String(accessNumberMatch[2] || '').trim(),
+            provider: normalizedFallback?.provider || 'hero-sms',
+            serviceCode: normalizedFallback?.serviceCode || HERO_SMS_SERVICE_CODE,
+            countryId: normalizedFallback?.countryId || HERO_SMS_COUNTRY_ID,
+            ...(normalizedFallback?.countryLabel ? { countryLabel: normalizedFallback.countryLabel } : {}),
+            successfulUses: normalizedFallback?.successfulUses ?? 0,
+            maxUses: normalizedFallback?.maxUses ?? DEFAULT_PHONE_NUMBER_MAX_USES,
+            ...(normalizedFallback?.statusAction ? { statusAction: normalizedFallback.statusAction } : {}),
+          };
+        }
 
       if (/^ACCESS_READY$/i.test(text) && normalizedFallback) {
         return normalizedFallback;
@@ -329,6 +546,19 @@
       return Math.min(...candidates);
     }
 
+    function buildSortedUniquePriceCandidates(values = []) {
+      return Array.from(
+        new Set(
+          values
+            .map((value) => normalizeHeroSmsPrice(value))
+            .filter((value) => value !== null)
+            .map((value) => Math.round(value * 10000) / 10000)
+        )
+      )
+        .sort((left, right) => left - right)
+        .slice(0, MAX_PHONE_PRICE_CANDIDATES);
+    }
+
     function isHeroSmsNoNumbersPayload(payload) {
       return /\bNO_NUMBERS\b/i.test(describeHeroSmsPayload(payload));
     }
@@ -355,6 +585,11 @@
       return /failed to fetch|networkerror|load failed/i.test(message);
     }
 
+    function isHeroSmsTerminalError(payloadOrMessage) {
+      const text = describeHeroSmsPayload(payloadOrMessage);
+      return /\bNO_BALANCE\b|\bNOT_ENOUGH_BALANCE\b|\bBAD_KEY\b|\bINVALID_KEY\b|\bBANNED\b|\bACCOUNT_BANNED\b|\bWRONG_KEY\b/i.test(text);
+    }
+
     async function resolveCheapestPhoneActivationPrice(config, countryConfig) {
       for (let attempt = 1; attempt <= DEFAULT_PHONE_PRICE_LOOKUP_ATTEMPTS; attempt += 1) {
         try {
@@ -374,6 +609,70 @@
       return null;
     }
 
+    async function persistHeroSmsPricePlanSnapshot(countryConfig, pricePlan) {
+      if (typeof setState !== 'function') {
+        return;
+      }
+      const prices = Array.isArray(pricePlan?.prices)
+        ? pricePlan.prices.filter((price) => Number.isFinite(Number(price)))
+        : [];
+      const userLimit = pricePlan?.userLimit === null || pricePlan?.userLimit === undefined
+        ? ''
+        : String(pricePlan.userLimit);
+      await setState({
+        [HERO_SMS_LAST_PRICE_TIERS_KEY]: prices,
+        [HERO_SMS_LAST_PRICE_COUNTRY_ID_KEY]: normalizeCountryId(countryConfig?.id, 0),
+        [HERO_SMS_LAST_PRICE_COUNTRY_LABEL_KEY]: normalizeCountryLabel(countryConfig?.label, HERO_SMS_COUNTRY_LABEL),
+        [HERO_SMS_LAST_PRICE_USER_LIMIT_KEY]: userLimit,
+        [HERO_SMS_LAST_PRICE_AT_KEY]: Date.now(),
+      });
+    }
+
+    async function resolvePhoneActivationPricePlan(config, countryConfig, state = {}) {
+      const userLimit = normalizeHeroSmsPriceLimit(state.heroSmsMaxPrice);
+      let priceCandidates = [];
+
+      for (let attempt = 1; attempt <= DEFAULT_PHONE_PRICE_LOOKUP_ATTEMPTS; attempt += 1) {
+        try {
+          const payload = await fetchHeroSmsPayload(config, {
+            action: 'getPrices',
+            service: HERO_SMS_SERVICE_CODE,
+            country: countryConfig.id,
+          }, 'HeroSMS getPrices');
+          priceCandidates = buildSortedUniquePriceCandidates(
+            collectHeroSmsPriceCandidates(payload, [])
+          );
+          if (priceCandidates.length > 0) {
+            break;
+          }
+        } catch (_) {
+          // best effort
+        }
+      }
+
+      const minCatalogPrice = priceCandidates.length > 0 ? priceCandidates[0] : null;
+      if (userLimit !== null) {
+        const bounded = priceCandidates.filter((price) => price <= userLimit);
+        if (bounded.length > 0) {
+          const boundedPlan = { prices: bounded, userLimit, minCatalogPrice };
+          await persistHeroSmsPricePlanSnapshot(countryConfig, boundedPlan);
+          return boundedPlan;
+        }
+        const userLimitedPlan = { prices: [userLimit], userLimit, minCatalogPrice };
+        await persistHeroSmsPricePlanSnapshot(countryConfig, userLimitedPlan);
+        return userLimitedPlan;
+      }
+
+      if (priceCandidates.length > 0) {
+        const plan = { prices: priceCandidates, userLimit: null, minCatalogPrice };
+        await persistHeroSmsPricePlanSnapshot(countryConfig, plan);
+        return plan;
+      }
+      const fallbackPlan = { prices: [null], userLimit: null, minCatalogPrice: null };
+      await persistHeroSmsPricePlanSnapshot(countryConfig, fallbackPlan);
+      return fallbackPlan;
+    }
+
     async function fetchPhoneActivationPayload(config, countryConfig, action, options = {}) {
       const query = {
         action,
@@ -387,10 +686,11 @@
       return fetchHeroSmsPayload(config, query, `HeroSMS ${action}`);
     }
 
-    async function requestPhoneActivationWithPrice(config, countryConfig, action, maxPrice) {
+    async function requestPhoneActivationWithPrice(config, countryConfig, action, maxPrice, options = {}) {
       let nextMaxPrice = maxPrice;
       let retriedWithUpdatedPrice = false;
       let retriedWithoutPrice = false;
+      const userLimit = normalizeHeroSmsPriceLimit(options.userLimit);
 
       while (true) {
         try {
@@ -405,6 +705,11 @@
             && !retriedWithUpdatedPrice
             && updatedMaxPrice !== null
           ) {
+            if (userLimit !== null && updatedMaxPrice > userLimit) {
+              throw new Error(
+                `HeroSMS ${action} failed: WRONG_MAX_PRICE requires ${updatedMaxPrice}, which exceeds configured maxPrice=${userLimit}.`
+              );
+            }
             nextMaxPrice = updatedMaxPrice;
             retriedWithUpdatedPrice = true;
             continue;
@@ -426,40 +731,194 @@
       }
     }
 
-    async function requestPhoneActivation(state = {}) {
+    async function requestPhoneActivation(state = {}, options = {}) {
       const config = resolvePhoneConfig(state);
-      const countryConfig = resolveCountryConfig(state);
-      const maxPrice = await resolveCheapestPhoneActivationPrice(config, countryConfig);
-      const buildFallbackActivation = (requestAction) => ({
-        countryId: countryConfig.id,
-        ...(requestAction === 'getNumberV2' ? { statusAction: 'getStatusV2' } : {}),
-      });
-      let requestAction = 'getNumber';
-      let payload;
-
-      try {
-        payload = await requestPhoneActivationWithPrice(config, countryConfig, requestAction, maxPrice);
-      } catch (error) {
-        if (!isHeroSmsNoNumbersPayload(error?.payload || error?.message)) {
-          throw error;
+      const allCountryCandidates = resolveCountryCandidates(state);
+      const blockedCountryIds = new Set(
+        (Array.isArray(options?.blockedCountryIds) ? options.blockedCountryIds : [])
+          .map((value) => normalizeCountryId(value, 0))
+          .filter((id) => id > 0)
+      );
+      let countryCandidates = allCountryCandidates.filter(
+        (entry) => !blockedCountryIds.has(normalizeCountryId(entry.id, 0))
+      );
+      if (!countryCandidates.length) {
+        countryCandidates = allCountryCandidates;
+        if (blockedCountryIds.size) {
+          await addLog(
+            'Step 9: all selected countries reached the temporary SMS-failure skip threshold, lifting skip for this acquire round.',
+            'warn'
+          );
         }
-        requestAction = 'getNumberV2';
-        payload = await requestPhoneActivationWithPrice(config, countryConfig, requestAction, maxPrice);
+      }
+      const acquirePriority = normalizeHeroSmsAcquirePriority(state?.heroSmsAcquirePriority);
+      const requestActions = ['getNumber', 'getNumberV2'];
+      const configuredAcquireRounds = normalizePhoneActivationRetryRounds(
+        state?.heroSmsActivationRetryRounds
+      );
+      const maxAcquireRounds = Math.max(2, configuredAcquireRounds);
+      const retryDelayMs = normalizePhoneActivationRetryDelayMs(
+        state?.heroSmsActivationRetryDelayMs
+      );
+
+      let finalNoNumbersByCountry = [];
+      let finalLastError = null;
+      let finalLastFailureText = '';
+
+      for (let round = 1; round <= maxAcquireRounds; round += 1) {
+        if (maxAcquireRounds > 1) {
+          await addLog(
+            `Step 9: HeroSMS acquiring phone number (round ${round}/${maxAcquireRounds})...`,
+            'info'
+          );
+        }
+
+        const countryAttempts = countryCandidates.map((countryConfig, index) => ({
+          index,
+          countryConfig,
+          pricePlan: null,
+          orderingPrice: Number.POSITIVE_INFINITY,
+        }));
+
+        if (acquirePriority === HERO_SMS_ACQUIRE_PRIORITY_PRICE) {
+          for (const attempt of countryAttempts) {
+            const pricePlan = await resolvePhoneActivationPricePlan(config, attempt.countryConfig, state);
+            const numericPrices = Array.isArray(pricePlan?.prices)
+              ? pricePlan.prices
+                  .map((value) => Number(value))
+                  .filter((value) => Number.isFinite(value) && value >= 0)
+              : [];
+            const minCandidatePrice = numericPrices.length ? Math.min(...numericPrices) : null;
+            const cappedByUserLimit = (
+              pricePlan?.userLimit !== null
+              && pricePlan?.userLimit !== undefined
+              && pricePlan?.minCatalogPrice !== null
+              && pricePlan?.minCatalogPrice !== undefined
+              && Number(pricePlan.minCatalogPrice) > Number(pricePlan.userLimit)
+            );
+            attempt.pricePlan = pricePlan;
+            attempt.orderingPrice = cappedByUserLimit
+              ? Number.POSITIVE_INFINITY
+              : (minCandidatePrice !== null ? minCandidatePrice : Number.POSITIVE_INFINITY);
+          }
+        }
+
+        if (acquirePriority === HERO_SMS_ACQUIRE_PRIORITY_PRICE && countryAttempts.length > 1) {
+          countryAttempts.sort((left, right) => {
+            if (left.orderingPrice !== right.orderingPrice) {
+              return left.orderingPrice - right.orderingPrice;
+            }
+            return left.index - right.index;
+          });
+        }
+
+        const noNumbersByCountry = [];
+        const retryableNoNumberCountries = [];
+        let lastError = null;
+        let lastFailureText = '';
+
+        for (const attempt of countryAttempts) {
+          const countryConfig = attempt.countryConfig;
+          const buildFallbackActivation = (requestAction) => ({
+            countryId: countryConfig.id,
+            ...(requestAction === 'getNumberV2' ? { statusAction: 'getStatusV2' } : {}),
+          });
+          const pricePlan = attempt.pricePlan || await resolvePhoneActivationPricePlan(config, countryConfig, state);
+          let noNumbersObservedInCountry = false;
+
+          for (const maxPrice of pricePlan.prices) {
+            for (const requestAction of requestActions) {
+              try {
+                const payload = await requestPhoneActivationWithPrice(
+                  config,
+                  countryConfig,
+                  requestAction,
+                  maxPrice,
+                  { userLimit: pricePlan.userLimit }
+                );
+                const activation = parseActivationPayload(payload, buildFallbackActivation(requestAction));
+                if (activation) {
+                  const { countryLabel: _ignoredCountryLabel, ...activationWithoutCountryLabel } = activation;
+                  return {
+                    ...activationWithoutCountryLabel,
+                    countryId: countryConfig.id,
+                  };
+                }
+                const payloadText = describeHeroSmsPayload(payload);
+                if (isHeroSmsNoNumbersPayload(payload)) {
+                  noNumbersObservedInCountry = true;
+                  lastFailureText = payloadText || lastFailureText;
+                  continue;
+                }
+                if (isHeroSmsTerminalError(payload)) {
+                  throw new Error(`HeroSMS ${requestAction} failed: ${payloadText || 'empty response'}`);
+                }
+                lastFailureText = payloadText || lastFailureText;
+                lastError = new Error(`HeroSMS ${requestAction} failed: ${payloadText || 'empty response'}`);
+              } catch (error) {
+                const payloadOrMessage = error?.payload || error?.message;
+                if (isHeroSmsTerminalError(payloadOrMessage)) {
+                  throw new Error(`HeroSMS ${requestAction} failed: ${describeHeroSmsPayload(payloadOrMessage) || 'empty response'}`);
+                }
+                if (isHeroSmsNoNumbersPayload(payloadOrMessage)) {
+                  noNumbersObservedInCountry = true;
+                  lastFailureText = describeHeroSmsPayload(payloadOrMessage) || lastFailureText;
+                  continue;
+                }
+                lastFailureText = describeHeroSmsPayload(payloadOrMessage) || lastFailureText;
+                lastError = error;
+              }
+            }
+          }
+
+          if (noNumbersObservedInCountry) {
+            if (
+              pricePlan.userLimit !== null
+              && pricePlan.minCatalogPrice !== null
+              && pricePlan.minCatalogPrice > pricePlan.userLimit
+            ) {
+              noNumbersByCountry.push(
+                `${countryConfig.label}: no numbers within maxPrice=${pricePlan.userLimit}; lowest listed=${pricePlan.minCatalogPrice}`
+              );
+            } else {
+              noNumbersByCountry.push(
+                `${countryConfig.label}: ${lastFailureText || 'NO_NUMBERS'}`
+              );
+              retryableNoNumberCountries.push(countryConfig.label);
+            }
+            continue;
+          }
+        }
+
+        finalNoNumbersByCountry = noNumbersByCountry;
+        finalLastError = lastError;
+        finalLastFailureText = lastFailureText;
+
+        if (
+          noNumbersByCountry.length
+          && round < maxAcquireRounds
+          && retryableNoNumberCountries.length > 0
+        ) {
+          await addLog(
+            `Step 9: HeroSMS has no available numbers (round ${round}/${maxAcquireRounds}); retrying in ${Math.ceil(retryDelayMs / 1000)}s. Countries: ${retryableNoNumberCountries.join(', ')}.`,
+            'warn'
+          );
+          await sleepWithStop(retryDelayMs);
+          continue;
+        }
+
+        break;
       }
 
-      let activation = parseActivationPayload(payload, buildFallbackActivation(requestAction));
-      if (!activation && requestAction === 'getNumber' && isHeroSmsNoNumbersPayload(payload)) {
-        requestAction = 'getNumberV2';
-        payload = await requestPhoneActivationWithPrice(config, countryConfig, requestAction, maxPrice);
-        activation = parseActivationPayload(payload, buildFallbackActivation(requestAction));
+      if (finalNoNumbersByCountry.length) {
+        throw new Error(
+          `HeroSMS no numbers available across ${countryCandidates.length} country candidate(s): ${finalNoNumbersByCountry.join(' | ')}.`
+        );
       }
-
-      if (!activation) {
-        const text = describeHeroSmsPayload(payload);
-        throw new Error(`HeroSMS ${requestAction} failed: ${text || 'empty response'}`);
+      if (finalLastError) {
+        throw finalLastError;
       }
-
-      return activation;
+      throw new Error(`HeroSMS failed to acquire a phone number. Last status: ${finalLastFailureText || 'unknown'}.`);
     }
 
     async function reactivatePhoneActivation(state = {}, activation) {
@@ -533,11 +992,16 @@
           : DEFAULT_PHONE_POLL_TIMEOUT_MS
       );
       const intervalMs = Math.max(1000, Number(options.intervalMs) || DEFAULT_PHONE_POLL_INTERVAL_MS);
+      const maxRoundsRaw = Math.floor(Number(options.maxRounds));
+      const maxRounds = Number.isFinite(maxRoundsRaw) && maxRoundsRaw > 0 ? maxRoundsRaw : 0;
       const start = Date.now();
       let lastResponse = '';
       let pollCount = 0;
 
       while (Date.now() - start < timeoutMs) {
+        if (maxRounds > 0 && pollCount >= maxRounds) {
+          break;
+        }
         throwIfStopped();
         const payload = await fetchHeroSmsPayload(config, {
           action: statusAction,
@@ -628,9 +1092,27 @@
       return result || {};
     }
 
-    async function submitPhoneNumber(tabId, phoneNumber) {
+    function resolveCountryConfigFromActivation(activation, fallbackState = {}) {
+      const candidates = resolveCountryCandidates(fallbackState);
+      if (activation && typeof activation === 'object') {
+        const countryId = normalizeCountryId(activation.countryId, 0);
+        if (countryId > 0) {
+          const matched = candidates.find((entry) => entry.id === countryId);
+          if (matched) {
+            return matched;
+          }
+          return {
+            id: countryId,
+            label: normalizeCountryLabel(activation.countryLabel, `Country #${countryId}`),
+          };
+        }
+      }
+      return candidates[0] || resolveCountryConfig(fallbackState);
+    }
+
+    async function submitPhoneNumber(tabId, phoneNumber, activation = null) {
       const state = await getState();
-      const countryConfig = resolveCountryConfig(state);
+      const countryConfig = resolveCountryConfigFromActivation(activation, state);
       const timeoutMs = typeof getOAuthFlowStepTimeoutMs === 'function'
         ? await getOAuthFlowStepTimeoutMs(30000, { step: 9, actionLabel: 'submit add-phone number' })
         : 30000;
@@ -721,6 +1203,7 @@
     async function persistCurrentActivation(activation) {
       await setState({
         [PHONE_ACTIVATION_STATE_KEY]: activation || null,
+        [PHONE_VERIFICATION_CODE_STATE_KEY]: '',
       });
     }
 
@@ -738,18 +1221,37 @@
       await persistReusableActivation(null);
     }
 
-    async function acquirePhoneActivation(state = {}) {
-      const countryConfig = resolveCountryConfig(state);
+    async function acquirePhoneActivation(state = {}, options = {}) {
+      const countryCandidates = resolveCountryCandidates(state);
+      const blockedCountryIds = new Set(
+        (Array.isArray(options?.blockedCountryIds) ? options.blockedCountryIds : [])
+          .map((value) => normalizeCountryId(value, 0))
+          .filter((id) => id > 0)
+      );
+      const allowedCountryIds = new Set(
+        countryCandidates
+          .map((entry) => normalizeCountryId(entry.id, 0))
+          .filter((id) => id > 0 && !blockedCountryIds.has(id))
+      );
+      const preferredCountryLabel = countryCandidates[0]?.label || HERO_SMS_COUNTRY_LABEL;
+      const resolveCountryLabelById = (countryId) => (
+        countryCandidates.find((entry) => entry.id === normalizeCountryId(countryId, 0))?.label
+        || preferredCountryLabel
+      );
+      const reuseEnabled = normalizeHeroSmsReuseEnabled(state.heroSmsReuseEnabled);
       const reusableActivation = normalizeActivation(state[REUSABLE_PHONE_ACTIVATION_STATE_KEY]);
       if (
+        reuseEnabled
+        &&
         reusableActivation
-        && reusableActivation.countryId === countryConfig.id
+        && !blockedCountryIds.has(normalizeCountryId(reusableActivation.countryId, 0))
+        && allowedCountryIds.has(reusableActivation.countryId)
         && reusableActivation.successfulUses < reusableActivation.maxUses
       ) {
         try {
           const reactivated = await reactivatePhoneActivation(state, reusableActivation);
           await addLog(
-            `Step 9: reusing ${countryConfig.label} number ${reactivated.phoneNumber} (${reactivated.successfulUses + 1}/${reactivated.maxUses}).`,
+            `Step 9: reusing ${resolveCountryLabelById(reactivated.countryId)} number ${reactivated.phoneNumber} (${reactivated.successfulUses + 1}/${reactivated.maxUses}).`,
             'info'
           );
           return reactivated;
@@ -757,20 +1259,22 @@
           await addLog(`Step 9: failed to reuse phone number ${reusableActivation.phoneNumber}, falling back to a new number. ${error.message}`, 'warn');
           await clearReusableActivation();
         }
-      } else if (reusableActivation && reusableActivation.countryId !== countryConfig.id) {
-        await clearReusableActivation();
       }
 
-      const activation = await requestPhoneActivation(state);
+      const activation = await requestPhoneActivation(state, { blockedCountryIds: Array.from(blockedCountryIds) });
       await addLog(
-        `Step 9: acquired ${HERO_SMS_SERVICE_LABEL} / ${countryConfig.label} number ${activation.phoneNumber}.`,
+        `Step 9: acquired ${HERO_SMS_SERVICE_LABEL} / ${resolveCountryLabelById(activation.countryId)} number ${activation.phoneNumber}.`,
         'info'
       );
       return activation;
     }
 
-    async function markActivationReusableAfterSuccess(activation) {
+    async function markActivationReusableAfterSuccess(state, activation) {
       const normalizedActivation = normalizeActivation(activation);
+      if (!normalizeHeroSmsReuseEnabled(state?.heroSmsReuseEnabled)) {
+        await clearReusableActivation();
+        return;
+      }
       if (!normalizedActivation) {
         await clearReusableActivation();
         return;
@@ -794,12 +1298,17 @@
         throw new Error('Phone activation is missing.');
       }
 
+      const waitSeconds = normalizePhoneCodeWaitSeconds(state?.phoneCodeWaitSeconds);
+      const timeoutWindows = normalizePhoneCodeTimeoutWindows(state?.phoneCodeTimeoutWindows);
+      const pollIntervalSeconds = normalizePhoneCodePollIntervalSeconds(state?.phoneCodePollIntervalSeconds);
+      const pollMaxRounds = normalizePhoneCodePollMaxRounds(state?.phoneCodePollMaxRounds);
       let lastLoggedStatus = '';
       let lastLoggedPollCount = 0;
+      let resendTriggeredForCurrentNumber = false;
 
-      for (let windowIndex = 1; windowIndex <= 2; windowIndex += 1) {
+      for (let windowIndex = 1; windowIndex <= timeoutWindows; windowIndex += 1) {
         await addLog(
-          `Step 9: waiting up to 60 seconds for SMS on ${normalizedActivation.phoneNumber} (${windowIndex}/2).`,
+          `Step 9: waiting up to ${waitSeconds} seconds for SMS on ${normalizedActivation.phoneNumber} (${windowIndex}/${timeoutWindows}).`,
           'info'
         );
         try {
@@ -807,7 +1316,9 @@
             actionLabel: windowIndex === 1
               ? 'poll phone verification code from HeroSMS'
               : 'poll resent phone verification code from HeroSMS',
-            timeoutMs: DEFAULT_PHONE_CODE_WAIT_WINDOW_MS,
+            timeoutMs: waitSeconds * 1000,
+            intervalMs: pollIntervalSeconds * 1000,
+            maxRounds: pollMaxRounds,
             onStatus: async ({ elapsedMs, pollCount, statusText }) => {
               const shouldLog = (
                 pollCount === 1
@@ -820,7 +1331,7 @@
               lastLoggedStatus = statusText;
               lastLoggedPollCount = pollCount;
               await addLog(
-                `Step 9: HeroSMS status for ${normalizedActivation.phoneNumber}: ${statusText} (${Math.ceil(elapsedMs / 1000)}s elapsed).`,
+                `Step 9: HeroSMS status for ${normalizedActivation.phoneNumber}: ${statusText} (${Math.ceil(elapsedMs / 1000)}s elapsed, round ${pollCount}/${pollMaxRounds}).`,
                 'info'
               );
             },
@@ -834,26 +1345,49 @@
             throw error;
           }
 
-          if (windowIndex === 1) {
+          if (windowIndex < timeoutWindows) {
             await addLog(
-              `Step 9: no SMS arrived for ${normalizedActivation.phoneNumber} within 60 seconds, requesting another SMS.`,
+              `Step 9: no SMS arrived for ${normalizedActivation.phoneNumber} within ${waitSeconds} seconds, requesting another SMS.`,
               'warn'
             );
             await requestAdditionalPhoneSms(state, normalizedActivation);
+            if (resendTriggeredForCurrentNumber) {
+              await addLog(
+                `Step 9: resend already used once for ${normalizedActivation.phoneNumber}; continue polling without another page resend to avoid rate limit.`,
+                'warn'
+              );
+              continue;
+            }
             try {
               await resendPhoneVerificationCode(tabId);
+              resendTriggeredForCurrentNumber = true;
               await addLog('Step 9: clicked "Resend text message" on the phone verification page.', 'info');
             } catch (resendError) {
+              if (isPhoneResendThrottledError(resendError)) {
+                await addLog(
+                  `Step 9: resend is throttled for ${normalizedActivation.phoneNumber}, replacing number immediately. ${resendError.message}`,
+                  'warn'
+                );
+                return {
+                  code: '',
+                  replaceNumber: true,
+                  reason: 'resend_throttled',
+                };
+              }
               await addLog(`Step 9: failed to click resend on the phone verification page. ${resendError.message}`, 'warn');
             }
             continue;
           }
 
           await addLog(
-            `Step 9: still no SMS for ${normalizedActivation.phoneNumber} 60 seconds after resend, restarting from step 7 with a new number.`,
+            `Step 9: no SMS for ${normalizedActivation.phoneNumber} after ${timeoutWindows} window(s), replacing the number inside step 9.`,
             'warn'
           );
-          throw buildPhoneRestartStep7Error(normalizedActivation.phoneNumber);
+          return {
+            code: '',
+            replaceNumber: true,
+            reason: `sms_timeout_after_${timeoutWindows}_windows`,
+          };
         }
       }
 
@@ -866,6 +1400,52 @@
       let pageState = initialPageState || await readPhonePageState(tabId);
       let shouldCancelActivation = false;
       let remainingResendRequests = Math.max(0, Number(state.verificationResendCount) || 0);
+      const maxNumberReplacementAttempts = normalizePhoneReplacementLimit(
+        state.phoneVerificationReplacementLimit
+      );
+      let usedNumberReplacementAttempts = 0;
+      let preferReuseExistingActivationOnAddPhone = false;
+      let addPhoneReentryWithSameActivation = 0;
+      const countrySmsFailureCounts = new Map();
+
+      const getCountryFailureCount = (countryId) => {
+        const normalizedCountryId = normalizeCountryId(countryId, 0);
+        if (!normalizedCountryId) {
+          return 0;
+        }
+        return Math.max(0, Math.floor(Number(countrySmsFailureCounts.get(normalizedCountryId)) || 0));
+      };
+
+      const markCountrySmsFailure = async (countryId, reason = 'sms_timeout') => {
+        const normalizedCountryId = normalizeCountryId(countryId, 0);
+        if (!normalizedCountryId) {
+          return;
+        }
+        const nextCount = getCountryFailureCount(normalizedCountryId) + 1;
+        countrySmsFailureCounts.set(normalizedCountryId, nextCount);
+        if (nextCount >= PHONE_SMS_FAILURE_SKIP_THRESHOLD) {
+          const matched = resolveCountryCandidates(state)
+            .find((entry) => normalizeCountryId(entry.id, 0) === normalizedCountryId);
+          const countryLabel = matched?.label || `Country #${normalizedCountryId}`;
+          await addLog(
+            `Step 9: ${countryLabel} reached ${nextCount} SMS failures (${reason}); next acquisition will fallback to other selected country candidates first.`,
+            'warn'
+          );
+        }
+      };
+
+      const clearCountrySmsFailure = (countryId) => {
+        const normalizedCountryId = normalizeCountryId(countryId, 0);
+        if (!normalizedCountryId) {
+          return;
+        }
+        countrySmsFailureCounts.delete(normalizedCountryId);
+      };
+
+      const getBlockedCountryIds = () => Array.from(countrySmsFailureCounts.entries())
+        .filter(([, count]) => Number(count) >= PHONE_SMS_FAILURE_SKIP_THRESHOLD)
+        .map(([countryId]) => normalizeCountryId(countryId, 0))
+        .filter((countryId) => countryId > 0);
 
       try {
         while (true) {
@@ -875,17 +1455,91 @@
           }
 
           if (pageState?.addPhonePage) {
-            if (activation) {
-              await cancelPhoneActivation(state, activation);
-              await clearCurrentActivation();
-              activation = null;
-              shouldCancelActivation = false;
+            if (!activation) {
+              activation = await acquirePhoneActivation(state, {
+                blockedCountryIds: getBlockedCountryIds(),
+              });
+              shouldCancelActivation = true;
+              await persistCurrentActivation(activation);
+              addPhoneReentryWithSameActivation = 0;
+            } else if (preferReuseExistingActivationOnAddPhone) {
+              addPhoneReentryWithSameActivation += 1;
+              if (addPhoneReentryWithSameActivation > 1) {
+                usedNumberReplacementAttempts += 1;
+                if (usedNumberReplacementAttempts > maxNumberReplacementAttempts) {
+                  throw new Error(
+                    `Step 9: phone verification did not succeed after ${maxNumberReplacementAttempts} number replacements. Last reason: returned_to_add_phone_loop.`
+                  );
+                }
+                await addLog(
+                  `Step 9: current number ${activation.phoneNumber} returned to add-phone repeatedly, replacing number (${usedNumberReplacementAttempts}/${maxNumberReplacementAttempts}).`,
+                  'warn'
+                );
+                if (shouldCancelActivation && activation) {
+                  await cancelPhoneActivation(state, activation);
+                }
+                await clearCurrentActivation();
+                activation = null;
+                shouldCancelActivation = false;
+                preferReuseExistingActivationOnAddPhone = false;
+                addPhoneReentryWithSameActivation = 0;
+                pageState = {
+                  ...pageState,
+                  addPhonePage: true,
+                  phoneVerificationPage: false,
+                };
+                continue;
+              }
+              await addLog(
+                `Step 9: add-phone returned, re-submitting current number ${activation.phoneNumber} before requesting a new number.`,
+                'warn'
+              );
             }
 
-            activation = await acquirePhoneActivation(state);
-            shouldCancelActivation = true;
-            await persistCurrentActivation(activation);
-            const submitResult = await submitPhoneNumber(tabId, activation.phoneNumber);
+            let submitResult = await submitPhoneNumber(tabId, activation.phoneNumber, activation);
+            if (submitResult.addPhoneRejected) {
+              const addPhoneRejectText = String(submitResult.errorText || submitResult.url || 'unknown error');
+              if (isPhoneNumberUsedError(addPhoneRejectText)) {
+                usedNumberReplacementAttempts += 1;
+                if (usedNumberReplacementAttempts > maxNumberReplacementAttempts) {
+                  throw new Error(
+                    `Step 9: phone verification did not succeed after ${maxNumberReplacementAttempts} number replacements. Last reason: phone_number_used.`
+                  );
+                }
+
+                await addLog(
+                  `Step 9: add-phone rejected ${activation.phoneNumber} as already used (${addPhoneRejectText}), replacing number (${usedNumberReplacementAttempts}/${maxNumberReplacementAttempts}).`,
+                  'warn'
+                );
+                if (shouldCancelActivation && activation) {
+                  await cancelPhoneActivation(state, activation);
+                }
+                await clearCurrentActivation();
+                activation = null;
+                shouldCancelActivation = false;
+                preferReuseExistingActivationOnAddPhone = false;
+                addPhoneReentryWithSameActivation = 0;
+                pageState = {
+                  ...pageState,
+                  ...submitResult,
+                  addPhonePage: true,
+                  phoneVerificationPage: false,
+                };
+                continue;
+              }
+
+              await addLog(
+                `Step 9: add-phone rejected current number but did not mark it as used (${addPhoneRejectText}), retrying once with the same number.`,
+                'warn'
+              );
+              submitResult = await submitPhoneNumber(tabId, activation.phoneNumber, activation);
+              if (submitResult.addPhoneRejected) {
+                throw new Error(
+                  `Step 9: add-phone keeps rejecting current number without explicit "used" status: ${submitResult.errorText || submitResult.url || 'unknown error'}.`
+                );
+              }
+            }
+
             await addLog('Step 9: submitted the phone number on add-phone page.', 'info');
             pageState = {
               ...pageState,
@@ -893,6 +1547,8 @@
               addPhonePage: false,
               phoneVerificationPage: true,
             };
+            preferReuseExistingActivationOnAddPhone = false;
+            addPhoneReentryWithSameActivation = 0;
           }
 
           if (!pageState?.phoneVerificationPage) {
@@ -908,6 +1564,7 @@
           }
 
           let shouldReplaceNumber = false;
+          let replaceReason = '';
 
           for (let attempt = 1; attempt <= DEFAULT_PHONE_SUBMIT_ATTEMPTS; attempt += 1) {
             throwIfStopped();
@@ -915,18 +1572,22 @@
             const codeResult = await waitForPhoneCodeOrRotateNumber(tabId, state, activation);
             if (codeResult.replaceNumber) {
               shouldReplaceNumber = true;
+              replaceReason = codeResult.reason || 'sms_not_received';
               break;
             }
 
+            await setState({
+              [PHONE_VERIFICATION_CODE_STATE_KEY]: String(codeResult.code || '').trim(),
+            });
             await addLog(`Step 9: received phone verification code ${codeResult.code}.`, 'info');
             const submitResult = await submitPhoneVerificationCode(tabId, codeResult.code);
 
             if (submitResult.returnedToAddPhone) {
               await addLog(
-                'Step 9: phone verification returned to add-phone after code submission, replacing the current number.',
+                'Step 9: phone verification returned to add-phone after code submission, will try current number first.',
                 'warn'
               );
-              shouldReplaceNumber = true;
+              preferReuseExistingActivationOnAddPhone = true;
               pageState = {
                 ...pageState,
                 ...submitResult,
@@ -937,10 +1598,25 @@
             }
 
             if (submitResult.invalidCode) {
-              if (attempt >= DEFAULT_PHONE_SUBMIT_ATTEMPTS) {
-                throw new Error(
-                  `Phone verification code was rejected after ${DEFAULT_PHONE_SUBMIT_ATTEMPTS} attempts: ${submitResult.errorText || submitResult.url || 'unknown error'}`
+              const invalidErrorText = String(submitResult.errorText || submitResult.url || 'unknown error');
+              if (isPhoneNumberUsedError(invalidErrorText)) {
+                shouldReplaceNumber = true;
+                replaceReason = 'phone_number_used';
+                await addLog(
+                  `Step 9: phone number was rejected as already used (${invalidErrorText}), replacing with a new number immediately.`,
+                  'warn'
                 );
+                break;
+              }
+
+              if (attempt >= DEFAULT_PHONE_SUBMIT_ATTEMPTS) {
+                shouldReplaceNumber = true;
+                replaceReason = 'code_rejected';
+                await addLog(
+                  `Step 9: phone verification code was rejected ${DEFAULT_PHONE_SUBMIT_ATTEMPTS} times (${invalidErrorText}), replacing the number.`,
+                  'warn'
+                );
+                break;
               }
 
               if (remainingResendRequests > 0) {
@@ -966,16 +1642,61 @@
             }
 
             await completePhoneActivation(state, activation);
-            await markActivationReusableAfterSuccess(activation);
+            await markActivationReusableAfterSuccess(state, activation);
+            clearCountrySmsFailure(activation.countryId);
             shouldCancelActivation = false;
             await clearCurrentActivation();
-          await addLog('Step 9: phone verification finished, waiting for OAuth consent.', 'ok');
-          return submitResult;
-        }
+            addPhoneReentryWithSameActivation = 0;
+            await addLog('Step 9: phone verification finished, waiting for OAuth consent.', 'ok');
+            return submitResult;
+          }
 
           if (!shouldReplaceNumber) {
+            if (pageState?.addPhonePage) {
+              continue;
+            }
             throw new Error('Phone verification did not complete successfully.');
           }
+
+          if (
+            activation
+            && (replaceReason === 'resend_throttled' || /^sms_timeout_after_/i.test(String(replaceReason || '')))
+          ) {
+            await markCountrySmsFailure(activation.countryId, replaceReason || 'sms_timeout');
+          }
+
+          usedNumberReplacementAttempts += 1;
+          if (usedNumberReplacementAttempts > maxNumberReplacementAttempts) {
+            throw new Error(
+              `Step 9: phone verification did not succeed after ${maxNumberReplacementAttempts} number replacements. Last reason: ${replaceReason || 'unknown'}.`
+            );
+          }
+
+          if (shouldCancelActivation && activation) {
+            await cancelPhoneActivation(state, activation);
+          }
+          await clearCurrentActivation();
+          activation = null;
+          shouldCancelActivation = false;
+          addPhoneReentryWithSameActivation = 0;
+
+          let returnResult = { addPhonePage: true, phoneVerificationPage: false };
+          try {
+            returnResult = await returnToAddPhone(tabId);
+          } catch (returnError) {
+            await addLog(`Step 9: failed to return to add-phone page before replacing number. ${returnError.message}`, 'warn');
+          }
+
+          await addLog(
+            `Step 9: replacing number and retrying inside step 9 (${usedNumberReplacementAttempts}/${maxNumberReplacementAttempts}).`,
+            'warn'
+          );
+          pageState = {
+            ...pageState,
+            ...returnResult,
+            addPhonePage: true,
+            phoneVerificationPage: false,
+          };
         }
       } catch (error) {
         if (shouldCancelActivation && activation) {
