@@ -286,6 +286,8 @@
         const stateFetchMode = String(mergedState.icloudFetchMode || '').trim().toLowerCase();
         return fetchIcloudHideMyEmail({
           generateNew: Boolean(options.generateNew) || stateFetchMode === 'always_new',
+          hostPreference: mergedState.icloudHostPreference,
+          preferredHost: mergedState.preferredIcloudHost,
         });
       }
       if (generator === 'cloudflare') {
