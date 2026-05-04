@@ -66,6 +66,7 @@ test('auto-run restarts from step 1 with the same email after step 4 failure', a
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
 const chrome = {
   tabs: {
     update: async () => {},
@@ -111,6 +112,7 @@ async function ensureAutoEmailReady() {
 }
 
 async function broadcastAutoRunStatus() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
 
 async function getState() {
   return currentState;
@@ -215,6 +217,7 @@ test('auto-run does not restart step 4 current attempt when user_already_exists 
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
 const chrome = {
   tabs: {
     update: async () => {},
@@ -256,6 +259,7 @@ async function ensureAutoEmailReady() {
 }
 
 async function broadcastAutoRunStatus() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
 
 async function getState() {
   return currentState;
@@ -336,6 +340,7 @@ test('auto-run skips steps 4/5 when step 2 has already marked registration chain
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
 const chrome = {
   tabs: {
     update: async () => {},
@@ -376,6 +381,7 @@ async function ensureAutoEmailReady() {
 }
 
 async function broadcastAutoRunStatus() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
 
 async function getState() {
   return currentState;

@@ -336,7 +336,67 @@ test('account records manager supports filter chips and partial multi-select del
   assert.match(list.innerHTML, /stopped@example\.com/);
   assert.equal(btnDeleteSelectedAccountRecords.disabled, true);
   assert.deepStrictEqual(toasts.at(-1), {
-    message: '已删除 1 条邮箱记录。',
+    message: '已删除 1 条账号记录。',
     tone: 'success',
   });
+});
+
+test('account records manager displays phone-only records with account identifier fallback', () => {
+  const source = fs.readFileSync('sidepanel/account-records-manager.js', 'utf8');
+  const windowObject = {};
+  const api = new Function('window', `${source}; return window.SidepanelAccountRecordsManager;`)(windowObject);
+
+  const list = createNode();
+  const meta = createNode();
+  const manager = api.createAccountRecordsManager({
+    state: {
+      getLatestState: () => ({
+        accountRunHistory: [
+          {
+            recordId: 'phone:+6612345',
+            accountIdentifierType: 'phone',
+            accountIdentifier: '+6612345',
+            phoneNumber: '+6612345',
+            email: '',
+            password: '',
+            finalStatus: 'success',
+            finishedAt: '2026-04-17T04:31:00.000Z',
+            retryCount: 0,
+            failureLabel: '流程完成',
+          },
+        ],
+      }),
+      syncLatestState() {},
+    },
+    dom: {
+      accountRecordsList: list,
+      accountRecordsMeta: meta,
+      accountRecordsOverlay: createNode(),
+      accountRecordsPageLabel: createNode(),
+      accountRecordsStats: createNode(),
+      btnAccountRecordsNext: createNode(),
+      btnAccountRecordsPrev: createNode(),
+      btnClearAccountRecords: createNode(),
+      btnCloseAccountRecords: createNode(),
+      btnDeleteSelectedAccountRecords: createNode(),
+      btnOpenAccountRecords: createNode(),
+      btnToggleAccountRecordsSelection: createNode(),
+    },
+    helpers: {
+      escapeHtml: (value) => String(value || ''),
+    },
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+    constants: {
+      displayTimeZone: 'Asia/Shanghai',
+      pageSize: 10,
+    },
+  });
+
+  manager.render();
+
+  assert.match(meta.textContent, /共 1 条/);
+  assert.match(list.innerHTML, /\+6612345/);
+  assert.doesNotMatch(list.innerHTML, /\(空邮箱\)/);
 });

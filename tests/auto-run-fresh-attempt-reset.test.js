@@ -105,6 +105,15 @@ let currentState = {
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
+  signupMethod: 'phone',
+  resolvedSignupMethod: 'phone',
+  accountIdentifierType: 'phone',
+  accountIdentifier: '+6612345',
+  signupPhoneNumber: '+6612345',
+  signupPhoneActivation: { activationId: 'signup-activation', phoneNumber: '+6612345' },
+  signupPhoneCompletedActivation: { activationId: 'signup-completed', phoneNumber: '+6612345' },
+  signupPhoneVerificationRequestedAt: 123456,
+  signupPhoneVerificationPurpose: 'signup',
   mailProvider: '163',
   emailGenerator: 'duck',
   gmailBaseEmail: 'demo@gmail.com',
@@ -162,6 +171,15 @@ async function resetState() {
     autoRunDelayEnabled: prev.autoRunDelayEnabled,
     autoRunDelayMinutes: prev.autoRunDelayMinutes,
     autoStepDelaySeconds: prev.autoStepDelaySeconds,
+    signupMethod: prev.signupMethod,
+    resolvedSignupMethod: null,
+    accountIdentifierType: null,
+    accountIdentifier: '',
+    signupPhoneNumber: '',
+    signupPhoneActivation: null,
+    signupPhoneCompletedActivation: null,
+    signupPhoneVerificationRequestedAt: null,
+    signupPhoneVerificationPurpose: '',
     mailProvider: prev.mailProvider,
     emailGenerator: prev.emailGenerator,
     gmailBaseEmail: prev.gmailBaseEmail,
@@ -335,6 +353,15 @@ return {
   assert.strictEqual(snapshot.currentState.autoRunSessionId, 0, 'session id should be cleared after completion');
   assert.strictEqual(snapshot.currentState.gmailBaseEmail, 'demo@gmail.com', 'gmail base email should survive fresh-attempt reset');
   assert.strictEqual(snapshot.currentState.mail2925BaseEmail, 'demo@2925.com', '2925 base email should survive fresh-attempt reset');
+  assert.strictEqual(snapshot.currentState.signupMethod, 'phone', 'signup method setting should survive fresh-attempt reset');
+  assert.strictEqual(snapshot.currentState.resolvedSignupMethod, null, 'resolved signup method should be cleared before the next run freezes it again');
+  assert.strictEqual(snapshot.currentState.accountIdentifierType, null, 'account identifier type should be runtime-only');
+  assert.strictEqual(snapshot.currentState.accountIdentifier, '', 'account identifier should be runtime-only');
+  assert.strictEqual(snapshot.currentState.signupPhoneNumber, '', 'signup phone number should be runtime-only');
+  assert.strictEqual(snapshot.currentState.signupPhoneActivation, null, 'signup phone activation should be runtime-only');
+  assert.strictEqual(snapshot.currentState.signupPhoneCompletedActivation, null, 'completed signup phone activation should be runtime-only');
+  assert.strictEqual(snapshot.currentState.signupPhoneVerificationRequestedAt, null, 'signup phone request time should be runtime-only');
+  assert.strictEqual(snapshot.currentState.signupPhoneVerificationPurpose, '', 'signup phone purpose should be runtime-only');
   assert.deepStrictEqual(
     snapshot.currentState.reusablePhoneActivation,
     {

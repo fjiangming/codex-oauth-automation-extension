@@ -90,8 +90,61 @@
       return '流程失败';
     }
 
-    function buildRecordId(email = '') {
-      return String(email || '').trim().toLowerCase();
+    function normalizeAccountIdentifierType(value = '') {
+      return String(value || '').trim().toLowerCase() === 'phone' ? 'phone' : 'email';
+    }
+
+    function normalizeAccountIdentifierValue(value = '', identifierType = 'email') {
+      const normalizedValue = String(value || '').trim();
+      if (!normalizedValue) {
+        return '';
+      }
+      return normalizeAccountIdentifierType(identifierType) === 'phone'
+        ? normalizedValue
+        : normalizedValue.toLowerCase();
+    }
+
+    function resolveRecordIdentity(record = {}) {
+      const email = String(record.email || '').trim().toLowerCase();
+      const phoneNumber = String(record.phoneNumber ?? record.phone ?? record.number ?? '').trim();
+      const rawIdentifierType = String(record.accountIdentifierType || '').trim().toLowerCase();
+      const inferredIdentifierType = rawIdentifierType === 'phone'
+        || (!email && phoneNumber)
+        ? 'phone'
+        : 'email';
+      const rawAccountIdentifier = String(
+        record.accountIdentifier
+        || (inferredIdentifierType === 'phone' ? phoneNumber : email)
+        || ''
+      ).trim();
+      const accountIdentifierType = rawAccountIdentifier
+        ? normalizeAccountIdentifierType(inferredIdentifierType)
+        : (email ? 'email' : (phoneNumber ? 'phone' : ''));
+      const accountIdentifier = normalizeAccountIdentifierValue(
+        rawAccountIdentifier || (accountIdentifierType === 'phone' ? phoneNumber : email),
+        accountIdentifierType || inferredIdentifierType
+      );
+
+      return {
+        email,
+        phoneNumber,
+        accountIdentifierType,
+        accountIdentifier,
+      };
+    }
+
+    function buildRecordId(identifier = '', identifierType = 'email') {
+      const normalizedIdentifierType = normalizeAccountIdentifierType(identifierType);
+      const normalizedIdentifier = normalizeAccountIdentifierValue(identifier, normalizedIdentifierType);
+      if (!normalizedIdentifier) {
+        return '';
+      }
+      if (normalizedIdentifierType === 'phone' && /^phone:/i.test(normalizedIdentifier)) {
+        return normalizedIdentifier.toLowerCase();
+      }
+      return normalizedIdentifierType === 'phone'
+        ? `phone:${normalizedIdentifier.toLowerCase()}`
+        : normalizedIdentifier;
     }
 
     function normalizeSource(value = '') {
@@ -140,11 +193,15 @@
         return null;
       }
 
-      const email = String(record.email || '').trim();
-      const password = String(record.password || '').trim();
+      const identity = resolveRecordIdentity(record);
+      const email = identity.email;
+      const phoneNumber = identity.phoneNumber;
+      const accountIdentifierType = identity.accountIdentifierType;
+      const accountIdentifier = identity.accountIdentifier;
+      const password = String(record.password ?? '').trim();
       const finalStatus = normalizeFinalStatus(record.finalStatus || record.status || '');
 
-      if (!email || !password || !finalStatus) {
+      if (!accountIdentifier || !finalStatus) {
         return null;
       }
 
@@ -167,8 +224,11 @@
       const rawFailureLabel = String(record.failureLabel || '').trim();
 
       return {
-        recordId: String(record.recordId || '').trim() || buildRecordId(email),
+        recordId: String(record.recordId || '').trim() || buildRecordId(accountIdentifier, accountIdentifierType),
+        accountIdentifierType,
+        accountIdentifier,
         email,
+        phoneNumber,
         password,
         finalStatus,
         finishedAt,
@@ -215,11 +275,20 @@
     }
 
     function buildAccountRunHistoryRecord(state = {}, status = '', reason = '') {
-      const email = String(state.email || '').trim();
-      const password = String(state.password || state.customPassword || '').trim() || '无';
+      const identity = resolveRecordIdentity({
+        accountIdentifierType: state.accountIdentifierType,
+        accountIdentifier: state.accountIdentifier,
+        email: state.email,
+        phoneNumber: state.phoneNumber || state.signupPhoneNumber,
+      });
+      const email = identity.email;
+      const phoneNumber = identity.phoneNumber;
+      const accountIdentifierType = identity.accountIdentifierType;
+      const accountIdentifier = identity.accountIdentifier;
+      const password = String(state.password || state.customPassword || '').trim();
       const finalStatus = normalizeFinalStatus(status);
 
-      if (!email || !finalStatus) {
+      if (!accountIdentifier || !finalStatus) {
         return null;
       }
 
@@ -233,8 +302,11 @@
       const finishedAt = new Date().toISOString();
 
       return {
-        recordId: buildRecordId(email),
+        recordId: buildRecordId(accountIdentifier, accountIdentifierType),
+        accountIdentifierType,
+        accountIdentifier,
         email,
+        phoneNumber,
         password,
         finalStatus,
         finishedAt,
@@ -257,10 +329,23 @@
 
       const recordId = String(record.recordId || '').trim();
       const emailKey = String(record.email || '').trim().toLowerCase();
+      const phoneKey = String(record.phoneNumber || '').trim().toLowerCase();
+      const identifierKey = buildRecordId(
+        record.accountIdentifier || record.email || record.phoneNumber,
+        record.accountIdentifierType || (phoneKey && !emailKey ? 'phone' : 'email')
+      );
       const nextHistory = normalizedHistory.filter((item) => {
         const itemRecordId = String(item.recordId || '').trim();
         const itemEmailKey = String(item.email || '').trim().toLowerCase();
-        return itemRecordId !== recordId && itemEmailKey !== emailKey;
+        const itemPhoneKey = String(item.phoneNumber || '').trim().toLowerCase();
+        const itemIdentifierKey = buildRecordId(
+          item.accountIdentifier || item.email || item.phoneNumber,
+          item.accountIdentifierType || (itemPhoneKey && !itemEmailKey ? 'phone' : 'email')
+        );
+        return itemRecordId !== recordId
+          && itemIdentifierKey !== identifierKey
+          && (!emailKey || itemEmailKey !== emailKey)
+          && (!phoneKey || itemPhoneKey !== phoneKey);
       });
 
       nextHistory.unshift(record);
@@ -283,7 +368,12 @@
       }
 
       const selectedIds = new Set(normalizedIds);
-      const nextHistory = normalizedHistory.filter((record) => !selectedIds.has(buildRecordId(record.recordId || record.email)));
+      const nextHistory = normalizedHistory.filter((record) => !selectedIds.has(buildRecordId(
+        record.recordId || record.accountIdentifier || record.email || record.phoneNumber,
+        String(record.recordId || '').startsWith('phone:') || String(record.accountIdentifierType || '').trim().toLowerCase() === 'phone'
+          ? 'phone'
+          : 'email'
+      )));
 
       return {
         deletedCount: normalizedHistory.length - nextHistory.length,

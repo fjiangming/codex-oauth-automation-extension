@@ -17,6 +17,8 @@
       isLuckmailProvider,
       isSignupEmailVerificationPageUrl,
       isSignupPasswordPageUrl,
+      isSignupPhoneVerificationPageUrl = null,
+      isSignupProfilePageUrl = null,
       reuseOrCreateTab,
       sendToContentScriptResilient,
       setEmailState,
@@ -62,46 +64,79 @@
       return { tabId, result: result || {} };
     }
 
-    function resolveSignupPostEmailState(rawUrl) {
+    function parseUrlSafely(rawUrl) {
+      if (!rawUrl) return null;
+      try {
+        return new URL(rawUrl);
+      } catch {
+        return null;
+      }
+    }
+
+    function fallbackSignupPhoneVerificationPageUrl(rawUrl) {
+      const parsed = parseUrlSafely(rawUrl);
+      if (!parsed) return false;
+      return /\/phone-verification(?:[/?#]|$)/i.test(parsed.pathname || '');
+    }
+
+    function fallbackSignupProfilePageUrl(rawUrl) {
+      const parsed = parseUrlSafely(rawUrl);
+      if (!parsed) return false;
+      return /\/create-account\/profile(?:[/?#]|$)/i.test(parsed.pathname || '');
+    }
+
+    function resolveSignupPostIdentityState(rawUrl) {
       if (isSignupPasswordPageUrl(rawUrl)) {
         return 'password_page';
       }
       if (isSignupEmailVerificationPageUrl(rawUrl)) {
         return 'verification_page';
       }
+      const isPhoneVerificationUrl = typeof isSignupPhoneVerificationPageUrl === 'function'
+        ? isSignupPhoneVerificationPageUrl(rawUrl)
+        : fallbackSignupPhoneVerificationPageUrl(rawUrl);
+      if (isPhoneVerificationUrl) {
+        return 'phone_verification_page';
+      }
+      const isProfileUrl = typeof isSignupProfilePageUrl === 'function'
+        ? isSignupProfilePageUrl(rawUrl)
+        : fallbackSignupProfilePageUrl(rawUrl);
+      if (isProfileUrl) {
+        return 'profile_page';
+      }
       return '';
     }
 
-    async function ensureSignupPostEmailPageReadyInTab(tabId, step = 2, options = {}) {
+    async function ensureSignupPostIdentityPageReadyInTab(tabId, step = 2, options = {}) {
       const { skipUrlWait = false } = options;
       let landingUrl = '';
       let landingState = '';
 
       if (!skipUrlWait) {
-        const matchedTab = await waitForTabUrlMatch(tabId, (url) => Boolean(resolveSignupPostEmailState(url)), {
+        const matchedTab = await waitForTabUrlMatch(tabId, (url) => Boolean(resolveSignupPostIdentityState(url)), {
           timeoutMs: 45000,
           retryDelayMs: 300,
         });
         if (!matchedTab) {
-          throw new Error('等待邮箱提交后的页面跳转超时，请检查页面是否仍停留在邮箱输入页。');
+          throw new Error('等待注册身份提交后的页面跳转超时，请检查页面是否仍停留在输入页。');
         }
 
         landingUrl = matchedTab.url || '';
-        landingState = resolveSignupPostEmailState(landingUrl);
+        landingState = resolveSignupPostIdentityState(landingUrl);
       }
 
       if (!landingState) {
         try {
           const currentTab = await chrome.tabs.get(tabId);
           landingUrl = landingUrl || currentTab?.url || '';
-          landingState = resolveSignupPostEmailState(landingUrl);
+          landingState = resolveSignupPostIdentityState(landingUrl);
         } catch {
           landingUrl = landingUrl || '';
         }
       }
 
       if (!landingState) {
-        throw new Error(`邮箱提交后未能识别当前页面，既不是密码页也不是邮箱验证码页。URL: ${landingUrl || 'unknown'}`);
+        throw new Error(`注册身份提交后未能识别当前页面，既不是密码页、验证码页，也不是资料页。URL: ${landingUrl || 'unknown'}`);
       }
 
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
@@ -109,12 +144,12 @@
         injectSource: 'signup-page',
         timeoutMs: 45000,
         retryDelayMs: 900,
-        logMessage: landingState === 'verification_page'
-          ? `步骤 ${step}：邮箱验证码页仍在加载，正在等待页面恢复...`
-          : `步骤 ${step}：密码页仍在加载，正在重试连接内容脚本...`,
+        logMessage: landingState === 'password_page'
+          ? `步骤 ${step}：密码页仍在加载，正在重试连接内容脚本...`
+          : `步骤 ${step}：注册后续页面仍在加载，正在等待页面恢复...`,
       });
 
-      if (landingState === 'verification_page') {
+      if (landingState !== 'password_page') {
         return {
           ready: true,
           state: landingState,
@@ -143,6 +178,10 @@
         state: landingState,
         url: landingUrl,
       };
+    }
+
+    async function ensureSignupPostEmailPageReadyInTab(tabId, step = 2, options = {}) {
+      return ensureSignupPostIdentityPageReadyInTab(tabId, step, options);
     }
 
     async function ensureSignupPasswordPageReadyInTab(tabId, step = 2, options = {}) {
@@ -240,6 +279,7 @@
 
     return {
       ensureSignupEntryPageReady,
+      ensureSignupPostIdentityPageReadyInTab,
       ensureSignupPostEmailPageReadyInTab,
       finalizeSignupPasswordSubmitInTab,
       ensureSignupPasswordPageReadyInTab,

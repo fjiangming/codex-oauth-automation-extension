@@ -39,6 +39,8 @@ test('step 2 completes with password step skipped when landing on email verifica
       step: 2,
       payload: {
         email: 'user@example.com',
+        accountIdentifierType: 'email',
+        accountIdentifier: 'user@example.com',
         nextSignupState: 'verification_page',
         nextSignupUrl: 'https://auth.openai.com/email-verification',
         skippedPasswordStep: true,
@@ -76,9 +78,85 @@ test('step 2 keeps password flow when landing on password page', async () => {
       step: 2,
       payload: {
         email: 'user@example.com',
+        accountIdentifierType: 'email',
+        accountIdentifier: 'user@example.com',
         nextSignupState: 'password_page',
         nextSignupUrl: 'https://auth.openai.com/create-account/password',
         skippedPasswordStep: false,
+      },
+    },
+  ]);
+});
+
+test('step 2 uses phone activation when resolved signup method is phone', async () => {
+  const completedPayloads = [];
+  const sentPayloads = [];
+  const activation = {
+    activationId: 'signup-activation',
+    phoneNumber: '66959916439',
+    provider: 'hero-sms',
+    serviceCode: 'dr',
+    countryId: 52,
+    countryLabel: 'Thailand',
+    successfulUses: 0,
+    maxUses: 3,
+  };
+
+  const executor = step2Api.createStep2Executor({
+    addLog: async () => {},
+    chrome: { tabs: { update: async () => {} } },
+    completeStepFromBackground: async (step, payload) => {
+      completedPayloads.push({ step, payload });
+    },
+    ensureContentScriptReadyOnTab: async () => {},
+    ensureSignupEntryPageReady: async () => ({ tabId: 14 }),
+    ensureSignupPostEmailPageReadyInTab: async () => {
+      throw new Error('email landing helper should not be used for phone signup');
+    },
+    ensureSignupPostIdentityPageReadyInTab: async () => ({
+      state: 'phone_verification_page',
+      url: 'https://auth.openai.com/phone-verification',
+    }),
+    getTabId: async () => 14,
+    isTabAlive: async () => true,
+    phoneVerificationHelpers: {
+      prepareSignupPhoneActivation: async () => activation,
+      cancelSignupPhoneActivation: async () => {
+        throw new Error('activation should not be cancelled on success');
+      },
+    },
+    resolveSignupMethod: () => 'phone',
+    resolveSignupEmailForFlow: async () => {
+      throw new Error('email resolver should not run for phone signup');
+    },
+    sendToContentScriptResilient: async (_source, message) => {
+      sentPayloads.push(message.payload);
+      return { submitted: true };
+    },
+    SIGNUP_PAGE_INJECT_FILES: [],
+  });
+
+  await executor.executeStep2({ signupMethod: 'phone' });
+
+  assert.deepStrictEqual(sentPayloads, [
+    {
+      signupMethod: 'phone',
+      phoneNumber: '66959916439',
+      countryId: 52,
+      countryLabel: 'Thailand',
+    },
+  ]);
+  assert.deepStrictEqual(completedPayloads, [
+    {
+      step: 2,
+      payload: {
+        accountIdentifierType: 'phone',
+        accountIdentifier: '66959916439',
+        signupPhoneNumber: '66959916439',
+        signupPhoneActivation: activation,
+        nextSignupState: 'phone_verification_page',
+        nextSignupUrl: 'https://auth.openai.com/phone-verification',
+        skippedPasswordStep: true,
       },
     },
   ]);

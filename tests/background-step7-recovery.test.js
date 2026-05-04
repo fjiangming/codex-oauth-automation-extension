@@ -90,6 +90,108 @@ test('step 8 submits login verification directly without replaying step 7', asyn
   assert.equal(calls.resolveOptions.completionStep, 8);
 });
 
+test('step 8 routes phone login verification through sms helper and skips mail provider setup', async () => {
+  const calls = {
+    getMailConfigCalls: 0,
+    helperCalls: [],
+    completions: [],
+  };
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (step, payload) => {
+      calls.completions.push({ step, payload });
+    },
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async () => {
+      throw new Error('phone login branch should not probe email verification page readiness');
+    },
+    getOAuthFlowRemainingMs: async () => 5000,
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => defaultTimeoutMs,
+    getMailConfig: () => {
+      calls.getMailConfigCalls += 1;
+      return {
+        provider: 'qq',
+        label: 'QQ 邮箱',
+      };
+    },
+    getState: async () => ({
+      accountIdentifierType: 'phone',
+      signupPhoneCompletedActivation: {
+        activationId: 'signup-done',
+        phoneNumber: '66959916439',
+      },
+    }),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    phoneVerificationHelpers: {
+      completeLoginPhoneVerificationFlow: async (tabId, options) => {
+        calls.helperCalls.push({ tabId, visibleStep: options.visibleStep, state: options.state });
+        return { code: '654321' };
+      },
+    },
+    resolveSignupMethod: () => 'phone',
+    resolveVerificationStep: async () => {
+      throw new Error('phone login branch should not call email verification flow');
+    },
+    rerunStep7ForStep8Recovery: async () => {
+      throw new Error('phone login branch should not rerun step 7 in this test');
+    },
+    reuseOrCreateTab: async () => {},
+    setState: async () => {},
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep8({
+    visibleStep: 8,
+    accountIdentifierType: 'phone',
+    signupPhoneCompletedActivation: {
+      activationId: 'signup-done',
+      phoneNumber: '66959916439',
+    },
+    oauthUrl: 'https://oauth.example/latest',
+  });
+
+  assert.equal(calls.getMailConfigCalls, 0);
+  assert.deepStrictEqual(calls.helperCalls, [
+    {
+      tabId: 1,
+      visibleStep: 8,
+      state: {
+        visibleStep: 8,
+        accountIdentifierType: 'phone',
+        signupPhoneCompletedActivation: {
+          activationId: 'signup-done',
+          phoneNumber: '66959916439',
+        },
+        oauthUrl: 'https://oauth.example/latest',
+      },
+    },
+  ]);
+  assert.deepStrictEqual(calls.completions, [
+    {
+      step: 8,
+      payload: {
+        phoneVerification: true,
+        loginPhoneVerification: true,
+        code: '654321',
+      },
+    },
+  ]);
+});
+
 test('Plus login-code step reuses step 8 verification logic but completes visible step 11', async () => {
   let resolvedStep = null;
   let resolvedOptions = null;

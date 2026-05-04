@@ -41,12 +41,30 @@
     }
 
     async function executeStep7(state) {
-      if (!state.email) {
-        throw new Error('缺少邮箱地址，请先完成步骤 3。');
-      }
-
       const visibleStep = Math.floor(Number(state?.visibleStep) || 0);
       const completionStep = visibleStep > 0 ? visibleStep : 7;
+      const resolvedIdentifierType = String(
+        state?.accountIdentifierType
+        || (state?.signupPhoneNumber ? 'phone' : '')
+        || ''
+      ).trim().toLowerCase() === 'phone'
+        ? 'phone'
+        : 'email';
+      const phoneNumber = String(
+        state?.signupPhoneNumber
+        || (resolvedIdentifierType === 'phone' ? state?.accountIdentifier : '')
+        || state?.signupPhoneCompletedActivation?.phoneNumber
+        || state?.signupPhoneActivation?.phoneNumber
+        || ''
+      ).trim();
+      const email = String(
+        state?.email
+        || (resolvedIdentifierType === 'email' ? state?.accountIdentifier : '')
+        || ''
+      ).trim();
+      if (!email && !phoneNumber) {
+        throw new Error('缺少登录账号，请先完成步骤 2 和步骤 3。');
+      }
 
       let attempt = 0;
       let lastError = null;
@@ -57,6 +75,28 @@
         try {
           const currentState = attempt === 1 ? state : await getState();
           const password = currentState.password || currentState.customPassword || '';
+          const currentIdentifierType = String(
+            currentState?.accountIdentifierType
+            || (currentState?.signupPhoneNumber ? 'phone' : '')
+            || resolvedIdentifierType
+          ).trim().toLowerCase() === 'phone'
+            ? 'phone'
+            : 'email';
+          const currentPhoneNumber = String(
+            currentState?.signupPhoneNumber
+            || (currentIdentifierType === 'phone' ? currentState?.accountIdentifier : '')
+            || currentState?.signupPhoneCompletedActivation?.phoneNumber
+            || currentState?.signupPhoneActivation?.phoneNumber
+            || phoneNumber
+          ).trim();
+          const currentEmail = String(
+            currentState?.email
+            || (currentIdentifierType === 'email' ? currentState?.accountIdentifier : '')
+            || email
+          ).trim();
+          const accountIdentifier = currentIdentifierType === 'phone'
+            ? currentPhoneNumber
+            : currentEmail;
           const oauthUrl = await refreshOAuthUrlBeforeStep6(currentState);
           if (typeof startOAuthFlowTimeoutWindow === 'function') {
             await startOAuthFlowTimeoutWindow({ step: completionStep, oauthUrl });
@@ -90,7 +130,18 @@
               step: 7,
               source: 'background',
               payload: {
-                email: currentState.email,
+                email: currentEmail,
+                phoneNumber: currentPhoneNumber,
+                countryId: currentState?.signupPhoneCompletedActivation?.countryId
+                  ?? currentState?.signupPhoneActivation?.countryId
+                  ?? null,
+                countryLabel: String(
+                  currentState?.signupPhoneCompletedActivation?.countryLabel
+                  || currentState?.signupPhoneActivation?.countryLabel
+                  || ''
+                ).trim(),
+                accountIdentifier,
+                loginIdentifierType: currentIdentifierType,
                 password,
                 visibleStep: completionStep,
               },

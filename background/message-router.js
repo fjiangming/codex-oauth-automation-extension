@@ -48,6 +48,14 @@
       getStepDefinitionForState,
       getStepIdsForState,
       getLastStepIdForState,
+      normalizeSignupMethod = (value = '') => String(value || '').trim().toLowerCase() === 'phone' ? 'phone' : 'email',
+      canUsePhoneSignup = (state = {}) => Boolean(state?.phoneVerificationEnabled)
+        && !Boolean(state?.plusModeEnabled)
+        && !Boolean(state?.contributionMode),
+      resolveSignupMethod = (state = {}) => {
+        const method = normalizeSignupMethod(state?.signupMethod);
+        return method === 'phone' && canUsePhoneSignup(state) ? 'phone' : 'email';
+      },
       getTabId,
       getStopRequested,
       handleAutoRunLoopUnhandledError,
@@ -275,7 +283,13 @@
 
       if (stepKey === 'fetch-login-code') {
         await setState({
-          lastEmailTimestamp: payload.emailTimestamp || null,
+          ...(payload.phoneVerification || payload.loginPhoneVerification ? {
+            currentPhoneVerificationCode: '',
+            signupPhoneVerificationRequestedAt: null,
+            signupPhoneVerificationPurpose: '',
+          } : {
+            lastEmailTimestamp: payload.emailTimestamp || null,
+          }),
           loginVerificationRequestedAt: null,
         });
         return;
@@ -340,7 +354,8 @@
             const step3Status = latestState.stepStatuses?.[3];
             if (step3Status !== 'running' && step3Status !== 'completed' && step3Status !== 'manual_completed') {
               await setStepStatus(3, 'skipped');
-              await addLog('步骤 2：提交邮箱后页面直接进入邮箱验证码页，已自动跳过步骤 3。', 'warn');
+              const identityLabel = payload.accountIdentifierType === 'phone' ? '手机号' : '邮箱';
+              await addLog(`步骤 2：提交${identityLabel}后页面直接进入验证码页，已自动跳过步骤 3。`, 'warn');
             }
           }
           break;
@@ -349,13 +364,27 @@
           if (payload.signupVerificationRequestedAt) {
             await setState({ signupVerificationRequestedAt: payload.signupVerificationRequestedAt });
           }
+          if (payload.skipProfileStep) {
+            const latestState = await getState();
+            const step5Status = latestState.stepStatuses?.[5];
+            if (step5Status !== 'running' && step5Status !== 'completed' && step5Status !== 'manual_completed') {
+              await setStepStatus(5, 'skipped');
+              await addLog('步骤 3：页面已直接进入已登录态，已自动跳过步骤 5。', 'warn');
+            }
+          }
           if (payload.loginVerificationRequestedAt) {
             await setState({ loginVerificationRequestedAt: payload.loginVerificationRequestedAt });
           }
           break;
         case 4:
           await setState({
-            lastEmailTimestamp: payload.emailTimestamp || null,
+            ...(payload.phoneVerification ? {
+              currentPhoneVerificationCode: '',
+              signupPhoneVerificationRequestedAt: null,
+              signupPhoneVerificationPurpose: '',
+            } : {
+              lastEmailTimestamp: payload.emailTimestamp || null,
+            }),
             signupVerificationRequestedAt: null,
           });
           if (payload.skipProfileStep) {
@@ -373,7 +402,13 @@
           break;
         case 8:
           await setState({
-            lastEmailTimestamp: payload.emailTimestamp || null,
+            ...(payload.phoneVerification || payload.loginPhoneVerification ? {
+              currentPhoneVerificationCode: '',
+              signupPhoneVerificationRequestedAt: null,
+              signupPhoneVerificationPurpose: '',
+            } : {
+              lastEmailTimestamp: payload.emailTimestamp || null,
+            }),
             loginVerificationRequestedAt: null,
           });
           break;
@@ -758,6 +793,18 @@
           const currentState = await getState();
           const updates = buildPersistentSettingsPayload(message.payload || {});
           const sessionUpdates = buildLuckmailSessionSettingsPayload(message.payload || {});
+          const nextSignupState = {
+            ...currentState,
+            ...updates,
+            resolvedSignupMethod: null,
+          };
+          if (
+            Object.prototype.hasOwnProperty.call(updates, 'phoneVerificationEnabled')
+            || Object.prototype.hasOwnProperty.call(updates, 'plusModeEnabled')
+            || Object.prototype.hasOwnProperty.call(updates, 'signupMethod')
+          ) {
+            updates.signupMethod = resolveSignupMethod(nextSignupState);
+          }
           const modeChanged = Object.prototype.hasOwnProperty.call(updates, 'plusModeEnabled')
             && Boolean(currentState?.plusModeEnabled) !== Boolean(updates.plusModeEnabled);
           const plusPaymentChanged = Object.prototype.hasOwnProperty.call(updates, 'plusPaymentMethod')

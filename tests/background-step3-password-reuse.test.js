@@ -44,7 +44,80 @@ test('step 3 reuses existing generated password when rerunning the same email fl
       source: 'background',
       payload: {
         email: 'keep@example.com',
+        phoneNumber: '',
+        accountIdentifierType: 'email',
+        accountIdentifier: 'keep@example.com',
         password: 'Secret123!',
+      },
+    },
+  ]);
+});
+
+test('step 3 supports phone-only signup identity when password page is present', async () => {
+  const events = {
+    passwordStates: [],
+    messages: [],
+    stateUpdates: [],
+    logs: [],
+  };
+
+  const executor = api.createStep3Executor({
+    addLog: async (message) => {
+      events.logs.push(message);
+    },
+    chrome: { tabs: { update: async () => {} } },
+    ensureContentScriptReadyOnTab: async () => {},
+    generatePassword: () => 'Generated123!',
+    getTabId: async () => 88,
+    isTabAlive: async () => true,
+    sendToContentScript: async (_source, message) => {
+      events.messages.push(message);
+    },
+    setPasswordState: async (password) => {
+      events.passwordStates.push(password);
+    },
+    setState: async (updates) => {
+      events.stateUpdates.push(updates);
+    },
+    SIGNUP_PAGE_INJECT_FILES: [],
+  });
+
+  await executor.executeStep3({
+    email: '',
+    signupPhoneNumber: '66959916439',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '66959916439',
+    customPassword: 'PhoneSecret123!',
+    accounts: [],
+  });
+
+  assert.deepStrictEqual(events.passwordStates, ['PhoneSecret123!']);
+  assert.equal(events.logs.some((message) => /注册手机号为 66959916439/.test(message)), true);
+  assert.equal(events.stateUpdates.length, 1);
+  assert.deepStrictEqual(events.stateUpdates[0].accounts.map((account) => ({
+    email: account.email,
+    phoneNumber: account.phoneNumber,
+    accountIdentifierType: account.accountIdentifierType,
+    accountIdentifier: account.accountIdentifier,
+  })), [
+    {
+      email: '',
+      phoneNumber: '66959916439',
+      accountIdentifierType: 'phone',
+      accountIdentifier: '66959916439',
+    },
+  ]);
+  assert.deepStrictEqual(events.messages, [
+    {
+      type: 'EXECUTE_STEP',
+      step: 3,
+      source: 'background',
+      payload: {
+        email: '',
+        phoneNumber: '66959916439',
+        accountIdentifierType: 'phone',
+        accountIdentifier: '66959916439',
+        password: 'PhoneSecret123!',
       },
     },
   ]);

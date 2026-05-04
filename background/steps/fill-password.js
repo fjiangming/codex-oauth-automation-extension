@@ -15,10 +15,32 @@
       SIGNUP_PAGE_INJECT_FILES,
     } = deps;
 
+    function resolveStep3AccountIdentity(state = {}) {
+      const resolvedEmail = String(state?.email || '').trim();
+      const signupPhoneNumber = String(
+        state?.signupPhoneNumber
+        || (state?.accountIdentifierType === 'phone' ? state?.accountIdentifier : '')
+        || ''
+      ).trim();
+      const accountIdentifierType = signupPhoneNumber && state?.accountIdentifierType === 'phone'
+        ? 'phone'
+        : (resolvedEmail ? 'email' : (signupPhoneNumber ? 'phone' : 'email'));
+      const accountIdentifier = accountIdentifierType === 'phone'
+        ? signupPhoneNumber
+        : resolvedEmail;
+
+      return {
+        accountIdentifierType,
+        accountIdentifier,
+        email: resolvedEmail,
+        phoneNumber: signupPhoneNumber,
+      };
+    }
+
     async function executeStep3(state) {
-      const resolvedEmail = state.email;
-      if (!resolvedEmail) {
-        throw new Error('缺少邮箱地址，请先完成步骤 2。');
+      const identity = resolveStep3AccountIdentity(state);
+      if (!identity.accountIdentifier) {
+        throw new Error('缺少注册账号，请先完成步骤 2。');
       }
 
       const signupTabId = await getTabId('signup-page');
@@ -30,7 +52,13 @@
       await setPasswordState(password);
 
       const accounts = state.accounts || [];
-      accounts.push({ email: resolvedEmail, createdAt: new Date().toISOString() });
+      accounts.push({
+        email: identity.email,
+        phoneNumber: identity.phoneNumber,
+        accountIdentifierType: identity.accountIdentifierType,
+        accountIdentifier: identity.accountIdentifier,
+        createdAt: new Date().toISOString(),
+      });
       await setState({ accounts });
 
       await chrome.tabs.update(signupTabId, { active: true });
@@ -42,14 +70,23 @@
         logMessage: '步骤 3：密码页内容脚本未就绪，正在等待页面恢复...',
       });
 
+      const identityLabel = identity.accountIdentifierType === 'phone'
+        ? `注册手机号为 ${identity.accountIdentifier}`
+        : `邮箱为 ${identity.accountIdentifier}`;
       await addLog(
-        `步骤 3：正在填写密码，邮箱为 ${resolvedEmail}，密码为${state.customPassword ? '自定义' : '自动生成'}（${password.length} 位）`
+        `步骤 3：正在填写密码，${identityLabel}，密码为${state.customPassword ? '自定义' : '自动生成'}（${password.length} 位）`
       );
       await sendToContentScript('signup-page', {
         type: 'EXECUTE_STEP',
         step: 3,
         source: 'background',
-        payload: { email: resolvedEmail, password },
+        payload: {
+          email: identity.email,
+          phoneNumber: identity.phoneNumber,
+          accountIdentifierType: identity.accountIdentifierType,
+          accountIdentifier: identity.accountIdentifier,
+          password,
+        },
       });
     }
 

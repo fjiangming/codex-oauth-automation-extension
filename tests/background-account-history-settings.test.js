@@ -54,12 +54,16 @@ test('background account history settings are normalized independently from hotm
     extractFunction('normalizeHotmailLocalBaseUrl'),
     extractFunction('normalizeAccountRunHistoryHelperBaseUrl'),
     extractFunction('normalizeVerificationResendCount'),
+    extractFunction('normalizePlusPaymentMethod'),
     extractFunction('normalizePhoneSmsProvider'),
     extractFunction('normalizePhoneSmsProviderOrder'),
+    extractFunction('normalizeSignupMethod'),
     extractFunction('normalizeFiveSimCountryCode'),
     extractFunction('normalizeFiveSimCountryOrder'),
     extractFunction('normalizeNexSmsCountryId'),
     extractFunction('normalizeNexSmsCountryOrder'),
+    extractFunction('normalizeNexSmsServiceCode'),
+    extractFunction('normalizePhonePreferredActivation'),
     extractFunction('normalizePhoneVerificationReplacementLimit'),
     extractFunction('normalizePhoneCodeWaitSeconds'),
     extractFunction('normalizePhoneCodeTimeoutWindows'),
@@ -106,6 +110,14 @@ const HERO_SMS_COUNTRY_ID = 52;
 const HERO_SMS_COUNTRY_LABEL = 'Thailand';
 const PHONE_SMS_PROVIDER_HERO_SMS = 'hero-sms';
 const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
+const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+const DEFAULT_PHONE_SMS_PROVIDER_ORDER = ['hero-sms', '5sim', 'nexsms'];
+const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO_SMS;
+const SIGNUP_METHOD_EMAIL = 'email';
+const SIGNUP_METHOD_PHONE = 'phone';
+const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
+const DEFAULT_FIVE_SIM_PRODUCT = 'openai';
+const DEFAULT_NEX_SMS_SERVICE_CODE = 'ot';
 const FIVE_SIM_COUNTRY_ID = 'vietnam';
 const FIVE_SIM_COUNTRY_LABEL = '越南 (Vietnam)';
 const FIVE_SIM_OPERATOR = 'any';
@@ -155,9 +167,15 @@ return {
   assert.equal(api.normalizePersistentSettingValue('phoneCodePollMaxRounds', '18'), 18);
   assert.equal(api.normalizePersistentSettingValue('heroSmsMaxPrice', '0.123456'), '0.1235');
   assert.equal(api.normalizePersistentSettingValue('heroSmsMaxPrice', '0'), '');
+  assert.equal(api.normalizePersistentSettingValue('heroSmsPreferredPrice', '0.051234'), '0.0512');
+  assert.equal(api.normalizePersistentSettingValue('signupMethod', 'phone'), 'phone');
+  assert.equal(api.normalizePersistentSettingValue('signupMethod', 'unknown'), 'email');
   assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', '5SIM'), '5sim');
+  assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', 'NEXSMS'), 'nexsms');
   assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', 'unknown'), 'hero-sms');
+  assert.deepStrictEqual(api.normalizePersistentSettingValue('phoneSmsProviderOrder', ['nexsms', '5sim', 'nexsms']), ['nexsms', '5sim']);
   assert.equal(api.normalizePersistentSettingValue('fiveSimApiKey', ' demo-five '), ' demo-five ');
+  assert.equal(api.normalizePersistentSettingValue('fiveSimProduct', ' OpenAI! '), 'openai');
   assert.equal(api.normalizePersistentSettingValue('fiveSimCountryId', ' England! '), 'vietnam');
   assert.equal(api.normalizePersistentSettingValue('fiveSimCountryId', ''), 'vietnam');
   assert.equal(api.normalizePersistentSettingValue('fiveSimCountryLabel', ''), '越南 (Vietnam)');
@@ -213,7 +231,35 @@ return {
     []
   );
   assert.deepStrictEqual(
+    api.normalizePersistentSettingValue('fiveSimCountryOrder', [' Thailand ', 'vietnam', 'thailand']),
+    ['thailand', 'vietnam']
+  );
+  assert.equal(api.normalizePersistentSettingValue('nexSmsApiKey', ' demo-nex '), ' demo-nex ');
+  assert.deepStrictEqual(
     api.normalizePersistentSettingValue('nexSmsCountryOrder', []),
     []
+  );
+  assert.deepStrictEqual(
+    api.normalizePersistentSettingValue('nexSmsCountryOrder', [1, '6', 1]),
+    [1, 6]
+  );
+  assert.equal(api.normalizePersistentSettingValue('nexSmsServiceCode', ' OT! '), 'ot');
+  assert.deepStrictEqual(
+    api.normalizePersistentSettingValue('phonePreferredActivation', {
+      provider: 'nexsms',
+      activationId: 'abc',
+      phoneNumber: '+6612345',
+      successfulUses: 2,
+      maxUses: 3,
+    }),
+    {
+      provider: 'nexsms',
+      activationId: 'abc',
+      phoneNumber: '+6612345',
+      successfulUses: 2,
+      maxUses: 3,
+      countryId: null,
+      countryLabel: '',
+    }
   );
 });

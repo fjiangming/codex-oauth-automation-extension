@@ -227,6 +227,75 @@ test('step 7 forwards direct OAuth consent skip metadata when completing', async
   ]);
 });
 
+test('step 7 forwards phone login identity payload when account identifier is phone', async () => {
+  const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    payloads: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async () => {},
+    completeStepFromBackground: async () => {},
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({
+      accountIdentifierType: 'phone',
+      accountIdentifier: '66959916439',
+      signupPhoneNumber: '66959916439',
+      signupPhoneCompletedActivation: {
+        activationId: 'signup-done',
+        phoneNumber: '66959916439',
+        countryId: 52,
+        countryLabel: 'Thailand',
+      },
+      password: 'secret',
+    }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => 'https://oauth.example/latest',
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_sourceName, message) => {
+      events.payloads.push(message.payload);
+      return {
+        step6Outcome: 'success',
+        state: 'phone_verification_page',
+        loginVerificationRequestedAt: 123456,
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    accountIdentifierType: 'phone',
+    accountIdentifier: '66959916439',
+    signupPhoneNumber: '66959916439',
+    signupPhoneCompletedActivation: {
+      activationId: 'signup-done',
+      phoneNumber: '66959916439',
+      countryId: 52,
+      countryLabel: 'Thailand',
+    },
+    password: 'secret',
+  });
+
+  assert.deepStrictEqual(events.payloads, [
+    {
+      email: '',
+      phoneNumber: '66959916439',
+      countryId: 52,
+      countryLabel: 'Thailand',
+      accountIdentifier: '66959916439',
+      loginIdentifierType: 'phone',
+      password: 'secret',
+      visibleStep: 7,
+    },
+  ]);
+});
+
 test('step 7 stops immediately when management secret is missing', async () => {
   const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
   const globalScope = {};

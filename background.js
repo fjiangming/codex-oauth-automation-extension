@@ -377,6 +377,9 @@ const PERSISTENT_ALIAS_STATE_KEYS = [
   'icloudAliasCacheAt',
 ];
 const ACCOUNT_RUN_HISTORY_STORAGE_KEY = 'accountRunHistory';
+const SIGNUP_METHOD_EMAIL = 'email';
+const SIGNUP_METHOD_PHONE = 'phone';
+const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
 const CONTRIBUTION_RUNTIME_DEFAULTS = self.MultiPageBackgroundContributionOAuth?.RUNTIME_DEFAULTS || {
   contributionMode: false,
   contributionModeExpected: false,
@@ -564,6 +567,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
   phoneVerificationEnabled: false,
+  signupMethod: DEFAULT_SIGNUP_METHOD,
   phoneSmsProvider: DEFAULT_PHONE_SMS_PROVIDER,
   phoneSmsProviderOrder: [],
   verificationResendCount: DEFAULT_VERIFICATION_RESEND_COUNT,
@@ -624,12 +628,17 @@ const PERSISTED_SETTING_DEFAULTS = {
   heroSmsCountryLabel: HERO_SMS_COUNTRY_LABEL,
   heroSmsCountryFallback: [],
   fiveSimApiKey: '',
+  fiveSimProduct: DEFAULT_FIVE_SIM_PRODUCT,
   fiveSimCountryId: FIVE_SIM_COUNTRY_ID,
   fiveSimCountryLabel: FIVE_SIM_COUNTRY_LABEL,
   fiveSimCountryFallback: [],
-  fiveSimCountryOrder: [FIVE_SIM_COUNTRY_ID],
+  fiveSimCountryOrder: [...DEFAULT_FIVE_SIM_COUNTRY_ORDER],
   fiveSimMaxPrice: '',
   fiveSimOperator: FIVE_SIM_OPERATOR,
+  nexSmsApiKey: '',
+  nexSmsCountryOrder: [...DEFAULT_NEX_SMS_COUNTRY_ORDER],
+  nexSmsServiceCode: DEFAULT_NEX_SMS_SERVICE_CODE,
+  phonePreferredActivation: null,
 };
 
 const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
@@ -658,6 +667,9 @@ const DEFAULT_STATE = {
   stepStatuses: Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending'])),
   ...CONTRIBUTION_RUNTIME_DEFAULTS,
   oauthUrl: null, // 运行时抓取到的 OAuth 地址，不要手动预填。
+  resolvedSignupMethod: null, // 当前自动轮次冻结后的实际注册方式。
+  accountIdentifierType: null,
+  accountIdentifier: '',
   email: null, // 运行时邮箱，由程序自动获取并写入，不能手动预填。
   password: null, // 运行时实际密码，由 customPassword 或程序自动生成后写入。
   accounts: [], // 已生成账号记录：{ email, password, createdAt }。
@@ -724,6 +736,11 @@ const DEFAULT_STATE = {
   currentPhoneVerificationCountdownWindowTotal: 0,
   reusablePhoneActivation: null,
   phoneReusableActivationPool: [],
+  signupPhoneNumber: '',
+  signupPhoneActivation: null,
+  signupPhoneCompletedActivation: null,
+  signupPhoneVerificationRequestedAt: null,
+  signupPhoneVerificationPurpose: '',
   heroSmsLastPriceTiers: [],
   heroSmsLastPriceCountryId: 0,
   heroSmsLastPriceCountryLabel: '',
@@ -999,9 +1016,100 @@ function normalizePhoneSmsProvider(value = '') {
     return rootScope.PhoneSmsProviderRegistry.normalizeProviderId(value);
   }
   const normalized = String(value || '').trim().toLowerCase();
-  return normalized === PHONE_SMS_PROVIDER_FIVE_SIM
-    ? PHONE_SMS_PROVIDER_FIVE_SIM
-    : PHONE_SMS_PROVIDER_HERO_SMS;
+  if (normalized === PHONE_SMS_PROVIDER_FIVE_SIM) {
+    return PHONE_SMS_PROVIDER_FIVE_SIM;
+  }
+  if (normalized === PHONE_SMS_PROVIDER_NEXSMS) {
+    return PHONE_SMS_PROVIDER_NEXSMS;
+  }
+  return PHONE_SMS_PROVIDER_HERO_SMS;
+}
+
+function normalizePhoneSmsProviderOrder(value = [], fallbackOrder = []) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(/[\r\n,，;；]+/)
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  const normalized = [];
+  const seen = new Set();
+
+  source.forEach((entry) => {
+    const provider = normalizePhoneSmsProvider(
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry.provider || entry.id || entry.value || '')
+        : entry
+    );
+    if (!provider || seen.has(provider)) {
+      return;
+    }
+    seen.add(provider);
+    normalized.push(provider);
+  });
+
+  if (normalized.length) {
+    return normalized.slice(0, DEFAULT_PHONE_SMS_PROVIDER_ORDER.length);
+  }
+
+  const fallback = Array.isArray(fallbackOrder) ? fallbackOrder : [];
+  fallback.forEach((entry) => {
+    const provider = normalizePhoneSmsProvider(
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry.provider || entry.id || entry.value || '')
+        : entry
+    );
+    if (!provider || seen.has(provider)) {
+      return;
+    }
+    seen.add(provider);
+    normalized.push(provider);
+  });
+
+  return normalized.slice(0, DEFAULT_PHONE_SMS_PROVIDER_ORDER.length);
+}
+
+function normalizeSignupMethod(value = '') {
+  return String(value || '').trim().toLowerCase() === SIGNUP_METHOD_PHONE
+    ? SIGNUP_METHOD_PHONE
+    : SIGNUP_METHOD_EMAIL;
+}
+
+function canUsePhoneSignup(state = {}) {
+  return Boolean(state?.phoneVerificationEnabled)
+    && !Boolean(state?.plusModeEnabled)
+    && !Boolean(state?.contributionMode);
+}
+
+function resolveSignupMethod(state = {}) {
+  const frozenMethod = String(state?.resolvedSignupMethod || '').trim().toLowerCase();
+  if (frozenMethod === SIGNUP_METHOD_EMAIL || frozenMethod === SIGNUP_METHOD_PHONE) {
+    return normalizeSignupMethod(frozenMethod);
+  }
+  const method = normalizeSignupMethod(state?.signupMethod);
+  return method === SIGNUP_METHOD_PHONE && canUsePhoneSignup(state)
+    ? SIGNUP_METHOD_PHONE
+    : SIGNUP_METHOD_EMAIL;
+}
+
+async function ensureResolvedSignupMethodForRun(options = {}) {
+  const state = await getState();
+  const force = Boolean(options.force);
+  const existing = String(state?.resolvedSignupMethod || '').trim().toLowerCase();
+  if (!force && (existing === SIGNUP_METHOD_EMAIL || existing === SIGNUP_METHOD_PHONE)) {
+    return normalizeSignupMethod(existing);
+  }
+
+  const configuredMethod = normalizeSignupMethod(state?.signupMethod);
+  const resolvedMethod = resolveSignupMethod({
+    ...state,
+    resolvedSignupMethod: null,
+  });
+  await setState({ resolvedSignupMethod: resolvedMethod });
+  if (configuredMethod === SIGNUP_METHOD_PHONE && resolvedMethod !== SIGNUP_METHOD_PHONE) {
+    await addLog('当前模式暂不支持手机号注册，本轮已固定为邮箱注册。', 'warn');
+  }
+  return resolvedMethod;
 }
 
 function normalizePlusPaymentMethod(value = '') {
@@ -1029,6 +1137,115 @@ function normalizeFiveSimCountryId(value, fallback = FIVE_SIM_COUNTRY_ID) {
     return '';
   }
   return FIVE_SIM_SUPPORTED_COUNTRY_ID_SET.has(normalizedFallback) ? normalizedFallback : FIVE_SIM_COUNTRY_ID;
+}
+
+function normalizeFiveSimCountryCode(value = '', fallback = 'thailand') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '');
+  return normalized || fallback;
+}
+
+function normalizeFiveSimCountryOrder(value = []) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(/[\r\n,，;；]+/)
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  const normalized = [];
+  const seen = new Set();
+
+  source.forEach((entry) => {
+    const code = normalizeFiveSimCountryCode(
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry.code || entry.country || entry.id || '')
+        : entry,
+      ''
+    );
+    if (!code || seen.has(code)) {
+      return;
+    }
+    seen.add(code);
+    normalized.push(code);
+  });
+
+  return normalized.slice(0, 10);
+}
+
+function normalizeNexSmsCountryId(value, fallback = 0) {
+  const parsed = Math.floor(Number(value));
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  const fallbackParsed = Math.floor(Number(fallback));
+  if (Number.isFinite(fallbackParsed) && fallbackParsed >= 0) {
+    return fallbackParsed;
+  }
+  return 0;
+}
+
+function normalizeNexSmsCountryOrder(value = []) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(/[\r\n,，;；]+/)
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+  const normalized = [];
+  const seen = new Set();
+  source.forEach((entry) => {
+    const id = normalizeNexSmsCountryId(
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry.id || entry.countryId || entry.country || '')
+        : entry,
+      -1
+    );
+    if (id < 0 || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    normalized.push(id);
+  });
+  return normalized.slice(0, 10);
+}
+
+function normalizeNexSmsServiceCode(value = '', fallback = DEFAULT_NEX_SMS_SERVICE_CODE) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+  if (normalized) {
+    return normalized;
+  }
+  const fallbackNormalized = String(fallback || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+  return fallbackNormalized || DEFAULT_NEX_SMS_SERVICE_CODE;
+}
+
+function normalizePhonePreferredActivation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const activationId = String(value.activationId ?? value.id ?? value.activation ?? '').trim();
+  const phoneNumber = String(value.phoneNumber ?? value.number ?? value.phone ?? '').trim();
+  if (!activationId || !phoneNumber) {
+    return null;
+  }
+  const provider = normalizePhoneSmsProvider(value.provider || value.smsProvider || DEFAULT_PHONE_SMS_PROVIDER);
+  return {
+    ...value,
+    provider,
+    activationId,
+    phoneNumber,
+    countryId: value.countryId ?? value.country ?? value.countryCode ?? null,
+    countryLabel: String(value.countryLabel || value.label || '').trim(),
+    successfulUses: Math.max(0, Math.floor(Number(value.successfulUses) || 0)),
+    maxUses: Math.max(1, Math.floor(Number(value.maxUses) || 1)),
+  };
 }
 
 function normalizeFiveSimCountryLabel(value = '', fallback = FIVE_SIM_COUNTRY_LABEL) {
@@ -1863,6 +2080,8 @@ function normalizePersistentSettingValue(key, value) {
       return String(value || '').trim();
     case 'customPassword':
       return String(value || '');
+    case 'signupMethod':
+      return normalizeSignupMethod(value);
     case 'plusPaymentMethod':
       return normalizePlusPaymentMethod(value);
     case 'paypalEmail':
@@ -2002,6 +2221,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeHeroSmsAcquirePriority(value);
     case 'heroSmsMaxPrice':
       return normalizeHeroSmsMaxPrice(value);
+    case 'heroSmsPreferredPrice':
+      return normalizeHeroSmsMaxPrice(value);
     case 'heroSmsCountryId': {
       const parsed = Math.floor(Number(value));
       if (Number.isFinite(parsed) && HERO_SMS_SUPPORTED_COUNTRY_ID_SET.has(String(parsed))) {
@@ -2015,6 +2236,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeHeroSmsCountryFallback(value);
     case 'fiveSimApiKey':
       return String(value || '');
+    case 'fiveSimProduct':
+      return normalizeFiveSimCountryCode(value, DEFAULT_FIVE_SIM_PRODUCT);
     case 'fiveSimCountryId':
       return normalizeFiveSimCountryId(value);
     case 'fiveSimCountryLabel':
@@ -2022,13 +2245,19 @@ function normalizePersistentSettingValue(key, value) {
     case 'fiveSimCountryFallback':
       return normalizeFiveSimCountryFallback(value);
     case 'fiveSimCountryOrder':
-      return normalizeFiveSimCountryFallback(value)
-        .map((entry) => entry.id)
-        .filter(Boolean);
+      return normalizeFiveSimCountryOrder(value);
     case 'fiveSimMaxPrice':
       return normalizeFiveSimMaxPrice(value);
     case 'fiveSimOperator':
       return normalizeFiveSimOperator(value);
+    case 'nexSmsApiKey':
+      return String(value || '');
+    case 'nexSmsCountryOrder':
+      return normalizeNexSmsCountryOrder(value);
+    case 'nexSmsServiceCode':
+      return normalizeNexSmsServiceCode(value);
+    case 'phonePreferredActivation':
+      return normalizePhonePreferredActivation(value);
     default:
       return value;
   }
@@ -2085,6 +2314,16 @@ function buildPersistentSettingsPayload(input = {}, options = {}) {
     }
     payload.cloudflareTempEmailDomains = domains;
   }
+  const nextSignupConstraintState = {
+    ...PERSISTED_SETTING_DEFAULTS,
+    ...payload,
+    resolvedSignupMethod: null,
+  };
+  if (Object.prototype.hasOwnProperty.call(payload, 'phoneVerificationEnabled')
+    || Object.prototype.hasOwnProperty.call(payload, 'plusModeEnabled')
+    || Object.prototype.hasOwnProperty.call(payload, 'signupMethod')) {
+    payload.signupMethod = resolveSignupMethod(nextSignupConstraintState);
+  }
   if (payload.ipProxyServiceProfiles) {
     const selectedService = normalizeIpProxyProviderValue(
       payload.ipProxyService || PERSISTED_SETTING_DEFAULTS.ipProxyService
@@ -2133,11 +2372,11 @@ async function getPersistedAliasState() {
     const preservedAliases = normalizeBooleanMap(stored.preservedAliases);
     return {
       manualAliasUsage,
-      preservedAliases,
-      icloudAliasCache: normalizeIcloudAliasCacheList(stored.icloudAliasCache, {
-        usedEmails: toNormalizedEmailSet(manualAliasUsage),
-        preservedEmails: toNormalizedEmailSet(preservedAliases),
-      }),
+    preservedAliases,
+    icloudAliasCache: normalizeIcloudAliasCacheList(stored.icloudAliasCache, {
+      usedEmails: toNormalizedEmailSet(manualAliasUsage),
+      preservedEmails: toNormalizedEmailSet(preservedAliases),
+    }),
       icloudAliasCacheAt: Math.max(0, Number(stored.icloudAliasCacheAt) || 0),
     };
   } catch (err) {
@@ -6766,8 +7005,10 @@ function getLoginAuthStateLabel(state) {
   }
   switch (state) {
     case 'verification_page': return '登录验证码页';
+    case 'phone_verification_page': return '手机验证码页';
     case 'password_page': return '密码页';
     case 'email_page': return '邮箱输入页';
+    case 'phone_entry_page': return '手机号输入页';
     case 'login_timeout_error_page': return '登录超时报错页';
     case 'oauth_consent_page': return 'OAuth 授权页';
     case 'add_phone_page': return '手机号页';
@@ -7768,12 +8009,21 @@ async function handleStepData(step, payload) {
     }
     case 2:
       if (payload.email) await setEmailState(payload.email);
+      if (payload.accountIdentifierType || payload.accountIdentifier || payload.signupPhoneNumber || payload.signupPhoneActivation) {
+        await setState({
+          accountIdentifierType: payload.accountIdentifierType || null,
+          accountIdentifier: String(payload.accountIdentifier || '').trim(),
+          signupPhoneNumber: String(payload.signupPhoneNumber || '').trim(),
+          signupPhoneActivation: payload.signupPhoneActivation || null,
+        });
+      }
       if (payload.skippedPasswordStep) {
         const latestState = await getState();
         const step3Status = latestState.stepStatuses?.[3];
         if (step3Status !== 'running' && step3Status !== 'completed' && step3Status !== 'manual_completed') {
           await setStepStatus(3, 'skipped');
-          await addLog('步骤 2：提交邮箱后页面直接进入邮箱验证码页，已自动跳过步骤 3。', 'warn');
+          const identityLabel = payload.accountIdentifierType === 'phone' ? '手机号' : '邮箱';
+          await addLog(`步骤 2：提交${identityLabel}后页面直接进入验证码页，已自动跳过步骤 3。`, 'warn');
         }
       }
       break;
@@ -7781,6 +8031,14 @@ async function handleStepData(step, payload) {
       if (payload.email) await setEmailState(payload.email);
       if (payload.signupVerificationRequestedAt) {
         await setState({ signupVerificationRequestedAt: payload.signupVerificationRequestedAt });
+      }
+      if (payload.skipProfileStep) {
+        const latestState = await getState();
+        const step5Status = latestState.stepStatuses?.[5];
+        if (step5Status !== 'running' && step5Status !== 'completed' && step5Status !== 'manual_completed') {
+          await setStepStatus(5, 'skipped');
+          await addLog('步骤 3：页面已直接进入已登录态，已自动跳过步骤 5。', 'warn');
+        }
       }
       if (payload.loginVerificationRequestedAt) {
         await setState({ loginVerificationRequestedAt: payload.loginVerificationRequestedAt });
@@ -7793,13 +8051,25 @@ async function handleStepData(step, payload) {
       break;
     case 4:
       await setState({
-        lastEmailTimestamp: payload.emailTimestamp || null,
+    ...(payload.phoneVerification ? {
+          currentPhoneVerificationCode: '',
+          signupPhoneVerificationRequestedAt: null,
+          signupPhoneVerificationPurpose: '',
+        } : {
+          lastEmailTimestamp: payload.emailTimestamp || null,
+        }),
         signupVerificationRequestedAt: null,
       });
       break;
     case 8:
       await setState({
-        lastEmailTimestamp: payload.emailTimestamp || null,
+        ...(payload.phoneVerification || payload.loginPhoneVerification ? {
+          currentPhoneVerificationCode: '',
+          signupPhoneVerificationRequestedAt: null,
+          signupPhoneVerificationPurpose: '',
+        } : {
+          lastEmailTimestamp: payload.emailTimestamp || null,
+        }),
         loginVerificationRequestedAt: null,
       });
       break;
@@ -9276,6 +9546,7 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
   let step4RestartCount = 0;
   let currentStartStep = startStep;
   let continueCurrentAttempt = continued;
+  const resolvedSignupMethod = await ensureResolvedSignupMethodForRun();
 
   while (true) {
 
@@ -9290,7 +9561,11 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
   }
 
   if (currentStartStep <= 2) {
-    await ensureAutoEmailReady(targetRun, totalRuns, attemptRuns);
+    if (resolvedSignupMethod === SIGNUP_METHOD_PHONE) {
+      await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：本轮注册方式为手机号注册，将跳过邮箱预获取 ===`, 'info');
+    } else {
+      await ensureAutoEmailReady(targetRun, totalRuns, attemptRuns);
+    }
     await executeStepAndWait(2, AUTO_STEP_DELAYS[2]);
   }
 
@@ -9570,6 +9845,14 @@ const signupFlowHelpers = self.MultiPageSignupFlowHelpers?.createSignupFlowHelpe
   isGeneratedAliasProvider,
   isReusableGeneratedAliasEmail,
   isSignupEmailVerificationPageUrl,
+  isSignupPhoneVerificationPageUrl: (rawUrl) => {
+    const parsed = parseUrlSafely(rawUrl);
+    return Boolean(parsed && isSignupPageHost(parsed.hostname) && /\/phone-verification(?:[/?#]|$)/i.test(parsed.pathname || ''));
+  },
+  isSignupProfilePageUrl: (rawUrl) => {
+    const parsed = parseUrlSafely(rawUrl);
+    return Boolean(parsed && isSignupPageHost(parsed.hostname) && /\/create-account\/profile(?:[/?#]|$)/i.test(parsed.pathname || ''));
+  },
   isRetryableContentScriptTransportError,
   isHotmailProvider,
   isLuckmailProvider,
@@ -9660,8 +9943,11 @@ const step2Executor = self.MultiPageBackgroundStep2?.createStep2Executor({
   ensureSignupAuthEntryPageReady,
   ensureSignupEntryPageReady,
   ensureSignupPostEmailPageReadyInTab,
+  ensureSignupPostIdentityPageReadyInTab: signupFlowHelpers.ensureSignupPostIdentityPageReadyInTab,
   getTabId,
   isTabAlive,
+  phoneVerificationHelpers,
+  resolveSignupMethod,
   resolveSignupEmailForFlow,
   sendToContentScriptResilient,
   SIGNUP_PAGE_INJECT_FILES,
@@ -9712,6 +9998,8 @@ const step4Executor = self.MultiPageBackgroundStep4?.createStep4Executor({
   shouldUseCustomRegistrationEmail,
   STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
   throwIfStopped,
+  phoneVerificationHelpers,
+  resolveSignupMethod,
 });
 const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
   addLog,
@@ -9760,7 +10048,9 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   isVerificationMailPollingError,
   LUCKMAIL_PROVIDER,
   resolveVerificationStep: verificationFlowHelpers.resolveVerificationStep,
+  phoneVerificationHelpers,
   rerunStep7ForStep8Recovery: (...args) => rerunStep7ForStep8Recovery(...args),
+  resolveSignupMethod,
   reuseOrCreateTab,
   setState,
   shouldUseCustomRegistrationEmail,
@@ -9938,6 +10228,9 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   getStepDefinitionForState,
   getStepIdsForState,
   getLastStepIdForState,
+  normalizeSignupMethod,
+  canUsePhoneSignup,
+  resolveSignupMethod,
   getTabId,
   getStopRequested: () => stopRequested,
   handleCloudflareSecurityBlocked,

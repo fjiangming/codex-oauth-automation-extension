@@ -52,6 +52,7 @@
     async function executePlusCheckoutCreate(state = {}) {
       const paymentMethod = normalizePlusPaymentMethod(state?.plusPaymentMethod);
       const paymentMethodLabel = getPlusPaymentMethodLabel(paymentMethod);
+      const checkoutModeLabel = getCheckoutModeLabel(state);
       await addLog('步骤 6：正在新打开 ChatGPT 会话页，准备创建 Plus Checkout...', 'info');
       const tabId = await openFreshChatGptTabForCheckoutCreate();
 

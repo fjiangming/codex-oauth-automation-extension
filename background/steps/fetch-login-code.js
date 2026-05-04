@@ -25,6 +25,8 @@
       resolveVerificationStep,
       rerunStep7ForStep8Recovery,
       reuseOrCreateTab,
+      phoneVerificationHelpers = null,
+      resolveSignupMethod = () => 'email',
       setState,
       shouldUseCustomRegistrationEmail,
       sleepWithStop,
@@ -95,6 +97,13 @@
 
     function normalizeStep8VerificationTargetEmail(value) {
       return String(value || '').trim().toLowerCase();
+    }
+
+    function isPhoneLoginState(state = {}) {
+      return String(state?.accountIdentifierType || '').trim().toLowerCase() === 'phone'
+        || resolveSignupMethod(state) === 'phone'
+        || Boolean(state?.signupPhoneCompletedActivation)
+        || Boolean(state?.signupPhoneActivation);
     }
 
     async function completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep, options = {}) {
@@ -206,9 +215,45 @@
       return Math.max(0, Number(STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS) || 0);
     }
 
+    async function executeLoginPhoneCodeStep(state, signupTabId, visibleStep) {
+      if (!Number.isInteger(signupTabId)) {
+        throw new Error(`步骤 ${visibleStep}：认证页面标签页已关闭，无法继续手机号登录验证码流程。`);
+      }
+      if (typeof phoneVerificationHelpers?.completeLoginPhoneVerificationFlow !== 'function') {
+        throw new Error(`步骤 ${visibleStep}：手机号登录验证码流程不可用，接码模块尚未初始化。`);
+      }
+
+      const result = await phoneVerificationHelpers.completeLoginPhoneVerificationFlow(signupTabId, {
+        state,
+        visibleStep,
+      });
+
+      await completeStepFromBackground(visibleStep, {
+        phoneVerification: true,
+        loginPhoneVerification: true,
+        code: result?.code || '',
+      });
+      return result || {};
+    }
+
     async function runStep8Attempt(state, runtime = {}) {
       const visibleStep = getVisibleStep(state, 8);
       activeFetchLoginCodeStep = visibleStep;
+      const authTabId = await getTabId('signup-page');
+
+      if (authTabId) {
+        await chrome.tabs.update(authTabId, { active: true });
+      } else {
+        if (!state.oauthUrl) {
+          throw new Error(`缺少登录用 OAuth 链接，请先完成步骤 ${getAuthLoginStepForVisibleStep(visibleStep)}。`);
+        }
+        await reuseOrCreateTab('signup-page', state.oauthUrl);
+      }
+
+      if (isPhoneLoginState(state)) {
+        return executeLoginPhoneCodeStep(state, authTabId, visibleStep);
+      }
+
       const mail = getMailConfig(state);
       if (mail.error) throw new Error(mail.error);
       const stateLastResendAt = Number(state?.loginVerificationRequestedAt) || 0;
@@ -222,16 +267,6 @@
         ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
         : stepStartedAt;
       const verificationSessionKey = `8:${stepStartedAt}`;
-      const authTabId = await getTabId('signup-page');
-
-      if (authTabId) {
-        await chrome.tabs.update(authTabId, { active: true });
-      } else {
-        if (!state.oauthUrl) {
-          throw new Error(`缺少登录用 OAuth 链接，请先完成步骤 ${getAuthLoginStepForVisibleStep(visibleStep)}。`);
-        }
-        await reuseOrCreateTab('signup-page', state.oauthUrl);
-      }
 
       throwIfStopped();
       const pageState = await ensureStep8VerificationPageReady({

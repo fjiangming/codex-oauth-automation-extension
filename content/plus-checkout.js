@@ -631,7 +631,6 @@ function buildPlusCheckoutUrl(checkoutSessionId, paymentMethod = PLUS_PAYMENT_ME
 
 async function createPlusCheckoutSession(options = {}) {
   await waitForDocumentComplete();
-  const checkoutConfig = buildPlusCheckoutConfig(payload);
   log('Plus：正在读取 ChatGPT 登录会话...');
 
   const sessionResponse = await fetch('/api/auth/session', {

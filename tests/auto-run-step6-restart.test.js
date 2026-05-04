@@ -74,6 +74,7 @@ function createHarness(options = {}) {
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
 const LOG_PREFIX = '[test]';
 const chrome = {
   tabs: {
@@ -93,6 +94,7 @@ async function addLog(message, level = 'info') {
 }
 
 async function ensureAutoEmailReady() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
 async function broadcastAutoRunStatus() {}
 async function getState() {
   return {

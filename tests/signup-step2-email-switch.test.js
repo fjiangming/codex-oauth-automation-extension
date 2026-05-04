@@ -136,6 +136,9 @@ ${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
 ${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
 ${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
 ${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
 ${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
 
 function isVisibleElement(el) {
@@ -196,6 +199,8 @@ async function sleep(ms) {
 ${extractFunction('getSignupEmailInput')}
 ${extractFunction('getSignupPhoneInput')}
 ${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
 ${extractFunction('getSignupEmailContinueButton')}
 ${extractFunction('inspectSignupEntryState')}
 ${extractFunction('waitForSignupEntryState')}
@@ -309,6 +314,9 @@ ${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
 ${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
 ${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
 ${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
 ${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
 
 function isVisibleElement(el) {
@@ -369,6 +377,8 @@ async function sleep(ms) {
 ${extractFunction('getSignupEmailInput')}
 ${extractFunction('getSignupPhoneInput')}
 ${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
 ${extractFunction('getSignupEmailContinueButton')}
 ${extractFunction('inspectSignupEntryState')}
 ${extractFunction('waitForSignupEntryState')}
@@ -428,4 +438,223 @@ return {
 `)();
 
   assert.equal(api.run()?.kind, 'localized-email');
+});
+
+test('submitSignupPhoneNumberAndContinue switches from email mode to phone mode and submits local number', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+const filled = [];
+let phase = 'email';
+let now = 0;
+
+const emailInput = {
+  kind: 'email',
+  value: '',
+  getAttribute(name) {
+    if (name === 'type') return 'email';
+    return '';
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  value: '',
+  textContent: 'Thailand (+66)',
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+  closest() {
+    return { textContent: 'Thailand (+66)' };
+  },
+};
+
+const switchButton = {
+  textContent: 'Continue with phone number',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const continueButton = {
+  textContent: 'Continue',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'submit';
+    if (name === 'aria-disabled') return 'false';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const document = {
+  querySelector(selector) {
+    if (selector === SIGNUP_EMAIL_INPUT_SELECTOR) {
+      return phase === 'email' ? emailInput : null;
+    }
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) {
+      return phase === 'phone' ? phoneInput : null;
+    }
+    if (selector === 'button[type="submit"], input[type="submit"]') {
+      return phase === 'phone' ? continueButton : null;
+    }
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') {
+      return phase === 'email' ? [switchButton] : [];
+    }
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]') {
+      return phase === 'phone' ? [continueButton] : [];
+    }
+    if (selector === 'input') {
+      return phase === 'phone' ? [phoneInput] : [emailInput];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const window = {
+  setTimeout(fn) {
+    fn();
+  },
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function findSignupEntryTrigger() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function getPageTextSnapshot() {
+  return phase === 'phone' ? 'Thailand (+66)' : '';
+}
+
+function throwIfStopped() {}
+function isStopError() { return false; }
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+  if (target === switchButton) {
+    phase = 'phone';
+  }
+}
+
+function fillInput(target, value) {
+  target.value = value;
+  filled.push({ target: target.kind, value });
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('getSignupEntryStateSummary')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('extractDialCodeFromText')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('resolveSignupPhoneDialCode')}
+${extractFunction('waitForSignupPhoneEntryState')}
+${extractFunction('submitSignupPhoneNumberAndContinue')}
+
+return {
+  async run() {
+    return submitSignupPhoneNumberAndContinue({
+      phoneNumber: '66959916439',
+      countryLabel: 'Thailand',
+    });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getFilled() {
+    return filled.slice();
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.phoneInputValue, '959916439');
+  assert.deepEqual(api.getClicks(), ['Continue with phone number', 'Continue']);
+  assert.deepEqual(api.getFilled(), [{ target: 'phone', value: '959916439' }]);
 });

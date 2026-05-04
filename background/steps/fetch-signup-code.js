@@ -27,6 +27,8 @@
       shouldUseCustomRegistrationEmail,
       STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
       throwIfStopped,
+      phoneVerificationHelpers = null,
+      resolveSignupMethod = () => 'email',
     } = deps;
 
     function buildSignupProfileForVerificationStep() {
@@ -58,6 +60,32 @@
       return String(state?.mail2925BaseEmail || '').trim().toLowerCase();
     }
 
+    function isPhoneSignupState(state = {}) {
+      return resolveSignupMethod(state) === 'phone'
+        || state?.accountIdentifierType === 'phone'
+        || Boolean(state?.signupPhoneActivation);
+    }
+
+    async function executeSignupPhoneCodeStep(state, signupTabId) {
+      if (typeof phoneVerificationHelpers?.completeSignupPhoneVerificationFlow !== 'function') {
+        throw new Error('步骤 4：手机号注册验证码流程不可用，接码模块尚未初始化。');
+      }
+
+      const signupProfile = buildSignupProfileForVerificationStep();
+      const result = await phoneVerificationHelpers.completeSignupPhoneVerificationFlow(signupTabId, {
+        state,
+        signupProfile,
+      });
+
+      await completeStepFromBackground(4, {
+        phoneVerification: true,
+        code: result?.code || '',
+        ...(result?.skipProfileStep ? { skipProfileStep: true } : {}),
+        ...(result?.skipProfileStepReason ? { skipProfileStepReason: result.skipProfileStepReason } : {}),
+      });
+      return result || {};
+    }
+
     async function focusOrOpenMailTab(mail) {
       const alive = await isTabAlive(mail.source);
       if (alive) {
@@ -81,13 +109,7 @@
     }
 
     async function executeStep4(state) {
-      const mail = getMailConfig(state);
-      if (mail.error) throw new Error(mail.error);
-
       const stepStartedAt = Date.now();
-      const verificationFilterAfterTimestamp = mail.provider === '2925'
-        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
-        : stepStartedAt;
       const verificationSessionKey = `4:${stepStartedAt}`;
       const signupTabId = await getTabId('signup-page');
 
@@ -175,10 +197,21 @@
         return;
       }
 
+      if (isPhoneSignupState(state)) {
+        return executeSignupPhoneCodeStep(state, signupTabId);
+      }
+
       if (shouldUseCustomRegistrationEmail(state)) {
         await confirmCustomVerificationStepBypass(4);
         return;
       }
+
+      const mail = getMailConfig(state);
+      if (mail.error) throw new Error(mail.error);
+
+      const verificationFilterAfterTimestamp = mail.provider === '2925'
+        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
+        : stepStartedAt;
 
       if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
         await addLog('步骤 4：正在确认 iCloud 邮箱登录态...', 'info');

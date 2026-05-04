@@ -73,7 +73,10 @@ test('account run history helper upgrades old records, keeps stopped items and s
   );
   assert.deepStrictEqual(record, {
     recordId: 'latest@example.com',
+    accountIdentifierType: 'email',
+    accountIdentifier: 'latest@example.com',
     email: 'latest@example.com',
+    phoneNumber: '',
     password: 'secret',
     finalStatus: 'failed',
     finishedAt: record.finishedAt,
@@ -138,6 +141,61 @@ test('account run history helper upgrades old records, keeps stopped items and s
   });
   assert.equal(normalizedStoppedRecord.failureLabel, '步骤 7 停止');
   assert.equal(normalizedStoppedRecord.failedStep, 7);
+});
+
+test('account run history helper accepts phone-only records without forcing email or password', () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: (value) => String(value || '').trim(),
+  });
+
+  const record = helpers.buildAccountRunHistoryRecord({
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    signupPhoneNumber: '+6612345',
+    password: '',
+  }, 'success');
+
+  assert.deepStrictEqual(record, {
+    recordId: 'phone:+6612345',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    email: '',
+    phoneNumber: '+6612345',
+    password: '',
+    finalStatus: 'success',
+    finishedAt: record.finishedAt,
+    retryCount: 0,
+    failureLabel: '流程完成',
+    failureDetail: '',
+    failedStep: null,
+    source: 'manual',
+    autoRunContext: null,
+    plusModeEnabled: false,
+    contributionMode: false,
+  });
+
+  const normalized = helpers.normalizeAccountRunHistoryRecord({
+    recordId: 'phone:+6612345',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    phoneNumber: '+6612345',
+    finalStatus: 'failed',
+    failureDetail: '步骤 8：手机号验证码超时。',
+  });
+
+  assert.equal(normalized.recordId, 'phone:+6612345');
+  assert.equal(normalized.accountIdentifierType, 'phone');
+  assert.equal(normalized.accountIdentifier, '+6612345');
+  assert.equal(normalized.email, '');
+  assert.equal(normalized.phoneNumber, '+6612345');
+  assert.equal(normalized.password, '');
+  assert.equal(normalized.finalStatus, 'failed');
 });
 
 test('account run history records preserve Plus and contribution mode flags', () => {
