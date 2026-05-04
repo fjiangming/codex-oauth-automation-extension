@@ -68,13 +68,15 @@ function createPhoneLoginEntryApi(options = {}) {
     inputRootText = '',
     pageText = '',
     addPhoneForm = false,
+    phoneUsernameKind = false,
   } = options;
 
   return new Function(`
 ${extractConst('ADD_PHONE_PAGE_PATTERN')}
+${extractConst('LOGIN_PHONE_ENTRY_PAGE_PATTERN')}
 
 const location = {
-  href: ${JSON.stringify(href)},
+  href: ${JSON.stringify(phoneUsernameKind ? `${href}${href.includes('?') ? '&' : '?'}usernameKind=phone_number` : href)},
   pathname: ${JSON.stringify(pathname)},
 };
 
@@ -107,7 +109,7 @@ const document = {
     return null;
   },
   querySelectorAll(selector) {
-    if (selector === 'input') return [phoneInput];
+    if (String(selector || '').includes('input')) return [phoneInput];
     return [];
   },
   getElementById() {
@@ -125,7 +127,18 @@ function isVisibleElement(element) {
   return Boolean(element);
 }
 
+function isPhoneVerificationPageReady() {
+  return false;
+}
+
 ${extractFunction('getPageTextSnapshot')}
+${extractFunction('isLoginPhoneUsernameKind')}
+${extractFunction('isLoginPhoneEntryPageText')}
+${extractFunction('isInsideHiddenPhoneControl')}
+${extractFunction('summarizePhoneInputCandidate')}
+${extractFunction('isUsablePhoneInputElement')}
+${extractFunction('collectPhoneInputCandidates')}
+${extractFunction('findUsablePhoneInput')}
 ${extractFunction('getLoginPhoneInput')}
 ${extractFunction('isAddPhonePageReady')}
 
@@ -153,6 +166,26 @@ test('step 7 does not mistake email entry with a phone switch action for phone i
 
   assert.equal(api.getLoginPhoneInput(), null);
   assert.equal(api.isAddPhonePageReady(), false);
+});
+
+test('step 7 detects username text input when usernameKind is phone_number', () => {
+  const api = createPhoneLoginEntryApi({
+    phoneUsernameKind: true,
+    pageText: '\u6b22\u8fce\u56de\u6765',
+    inputAttributes: { type: 'text', name: 'username', autocomplete: 'username' },
+  });
+
+  assert.ok(api.getLoginPhoneInput(), 'username text input should be treated as phone on phone login url');
+});
+
+test('step 7 ignores hidden phone inputs while resolving login phone entry', () => {
+  const api = createPhoneLoginEntryApi({
+    phoneUsernameKind: true,
+    pageText: '\u7535\u8bdd\u53f7\u7801',
+    inputAttributes: { type: 'hidden', name: 'phone' },
+  });
+
+  assert.equal(api.getLoginPhoneInput(), null);
 });
 
 test('add-phone detection stays true for real add-phone urls and forms', () => {
@@ -312,15 +345,48 @@ return {
   assert.deepEqual(api.getClicks(), ['\u6fb3\u5927\u5229\u4e9a (+61)', '\u82f1\u56fd +(44)']);
 });
 
-function createPhoneFillApi(fillBehavior) {
+function createPhoneFillApi(fillBehavior, options = {}) {
+  const {
+    initialValue = '+44',
+  } = options;
+
   return new Function('fillBehavior', `
 const fills = [];
 const phoneInput = {
-  value: '+44',
+  value: ${JSON.stringify(initialValue)},
+  form: null,
   getAttribute(name) {
     return name === 'value' ? this.value : '';
   },
+  focus() {},
+  closest() {
+    return this.form;
+  },
 };
+
+const hiddenPhoneInput = {
+  type: 'hidden',
+  value: '',
+  events: [],
+  getAttribute(name) {
+    if (name === 'type') return 'hidden';
+    if (name === 'name') return 'phone';
+    return '';
+  },
+  dispatchEvent(event) {
+    this.events.push(event.type);
+  },
+};
+
+const root = {
+  querySelectorAll(selector) {
+    if (String(selector).includes('input[name="phone"]')) {
+      return [hiddenPhoneInput];
+    }
+    return [];
+  },
+};
+phoneInput.form = root;
 
 function fillInput(input, value) {
   fills.push(value);
@@ -328,13 +394,24 @@ function fillInput(input, value) {
 }
 
 async function sleep() {}
+function throwIfStopped() {}
+function isVisibleElement() { return false; }
+function log() {}
 
 ${extractFunction('normalizePhoneDigits')}
 ${extractFunction('toNationalPhoneNumber')}
 ${extractFunction('toE164PhoneNumber')}
 ${extractFunction('getPhoneInputRenderedValue')}
+${extractFunction('isPhoneInputValueVerified')}
+${extractFunction('waitForPhoneInputValue')}
+${extractFunction('formatPhoneHiddenFormValue')}
+${extractFunction('getPhoneHiddenValueInput')}
+${extractFunction('setPhoneHiddenValue')}
+${extractFunction('syncPhoneHiddenFormValue')}
 ${extractFunction('isPhoneInputValueComplete')}
 ${extractFunction('getLoginPhoneFillCandidates')}
+${extractFunction('getLoginPhoneInputDiagnostics')}
+${extractFunction('getLoginPhoneHiddenValueDiagnostics')}
 ${extractFunction('fillLoginPhoneInputAndConfirm')}
 
 return {
@@ -343,6 +420,7 @@ return {
       phoneNumber: '447780579093',
       dialCode: '44',
       visibleStep: 7,
+      maxAttempts: 2,
     });
   },
   getFills() {
@@ -351,13 +429,19 @@ return {
   getValue() {
     return phoneInput.value;
   },
+  getHiddenValue() {
+    return hiddenPhoneInput.value;
+  },
+  getHiddenEvents() {
+    return hiddenPhoneInput.events.slice();
+  },
 };
   `)(fillBehavior);
 }
 
-test('step 7 retries phone fill with e164 when the auth input keeps only the dial code', async () => {
+test('step 7 keeps visible dial prefix when filling phone login and syncs the hidden value', async () => {
   const api = createPhoneFillApi((input, value) => {
-    input.value = value === '7780579093' ? '+44' : value;
+    input.value = value;
   });
 
   const result = await api.run();
@@ -365,7 +449,24 @@ test('step 7 retries phone fill with e164 when the auth input keeps only the dia
   assert.equal(result.inputValue, '7780579093');
   assert.equal(result.attemptedValue, '+447780579093');
   assert.equal(api.getValue(), '+447780579093');
-  assert.deepEqual(api.getFills(), ['7780579093', '+447780579093']);
+  assert.equal(api.getHiddenValue(), '+447780579093');
+  assert.deepEqual(api.getHiddenEvents(), ['input', 'change']);
+  assert.deepEqual(api.getFills(), ['+447780579093']);
+});
+
+test('step 7 keeps national phone fill when visible login input has no dial prefix', async () => {
+  const api = createPhoneFillApi((input, value) => {
+    input.value = value;
+  }, { initialValue: '' });
+
+  const result = await api.run();
+
+  assert.equal(result.inputValue, '7780579093');
+  assert.equal(result.attemptedValue, '7780579093');
+  assert.equal(api.getValue(), '7780579093');
+  assert.equal(api.getHiddenValue(), '+447780579093');
+  assert.deepEqual(api.getHiddenEvents(), ['input', 'change']);
+  assert.deepEqual(api.getFills(), ['7780579093']);
 });
 
 test('step 7 stops before submit when phone fill never includes the local number', async () => {
@@ -375,5 +476,5 @@ test('step 7 stops before submit when phone fill never includes the local number
 
   await assert.rejects(api.run, /7780579093/);
   assert.equal(api.getValue(), '+44');
-  assert.deepEqual(api.getFills(), ['7780579093', '+447780579093', '447780579093']);
+  assert.deepEqual(api.getFills(), ['+447780579093', '7780579093', '+447780579093', '7780579093']);
 });

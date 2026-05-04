@@ -101,6 +101,8 @@
           return 'OAuth 授权页';
         case 'add_phone_page':
           return '手机号页';
+        case 'add_email_page':
+          return '添加邮箱页';
         case 'phone_verification_page':
           return '手机验证码页';
         default:

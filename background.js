@@ -7198,6 +7198,7 @@ function getLoginAuthStateLabel(state) {
     case 'login_timeout_error_page': return '登录超时报错页';
     case 'oauth_consent_page': return 'OAuth 授权页';
     case 'add_phone_page': return '手机号页';
+    case 'add_email_page': return '添加邮箱页';
     default: return '未知页面';
   }
 }
@@ -10345,10 +10346,12 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   isVerificationMailPollingError,
   LUCKMAIL_PROVIDER,
   resolveVerificationStep: verificationFlowHelpers.resolveVerificationStep,
+  resolveSignupEmailForFlow,
   phoneVerificationHelpers,
   rerunStep7ForStep8Recovery: (...args) => rerunStep7ForStep8Recovery(...args),
   resolveSignupMethod,
   reuseOrCreateTab,
+  sendToContentScriptResilient,
   setState,
   shouldUseCustomRegistrationEmail,
   sleepWithStop,
@@ -11305,7 +11308,12 @@ async function ensureStep8VerificationPageReady(options = {}) {
     ...overrides,
   });
   let pageState = await inspectState();
-  if (pageState.state === 'verification_page' || pageState.state === 'oauth_consent_page') {
+  if (
+    pageState.state === 'verification_page'
+    || pageState.state === 'oauth_consent_page'
+    || (options.allowPhoneVerificationPage && pageState.state === 'phone_verification_page')
+    || (options.allowAddEmailPage && pageState.state === 'add_email_page')
+  ) {
     return pageState;
   }
 
@@ -11379,7 +11387,12 @@ async function ensureStep8VerificationPageReady(options = {}) {
         logMessage: '认证页恢复后，正在确认验证码页是否可继续...',
         logStepKey: 'fetch-login-code',
       });
-      if (pageState.state === 'verification_page' || pageState.state === 'oauth_consent_page') {
+      if (
+        pageState.state === 'verification_page'
+        || pageState.state === 'oauth_consent_page'
+        || (options.allowPhoneVerificationPage && pageState.state === 'phone_verification_page')
+        || (options.allowAddEmailPage && pageState.state === 'add_email_page')
+      ) {
         return pageState;
       }
       if (pageState.maxCheckAttemptsBlocked) {

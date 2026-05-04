@@ -2,6 +2,8 @@
   root.MultiPageBackgroundStep8 = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundStep8Module() {
   const MAIL_2925_FILTER_LOOKBACK_MS = 10 * 60 * 1000;
+  const STEP8_ADD_EMAIL_URL = 'https://auth.openai.com/add-email';
+  const STEP8_CURRENT_STEP_RECOVERY_MAX_ATTEMPTS = 3;
 
   function createStep8Executor(deps = {}) {
     const {
@@ -22,11 +24,12 @@
       isTabAlive,
       isVerificationMailPollingError,
       LUCKMAIL_PROVIDER,
+      resolveSignupEmailForFlow,
       resolveVerificationStep,
       rerunStep7ForStep8Recovery,
       reuseOrCreateTab,
+      sendToContentScriptResilient,
       phoneVerificationHelpers = null,
-      resolveSignupMethod = () => 'email',
       setState,
       shouldUseCustomRegistrationEmail,
       sleepWithStop,
@@ -99,11 +102,98 @@
       return String(value || '').trim().toLowerCase();
     }
 
-    function isPhoneLoginState(state = {}) {
-      return String(state?.accountIdentifierType || '').trim().toLowerCase() === 'phone'
-        || resolveSignupMethod(state) === 'phone'
-        || Boolean(state?.signupPhoneCompletedActivation)
-        || Boolean(state?.signupPhoneActivation);
+    async function getLoginAuthStateFromContent(visibleStep, options = {}) {
+      if (typeof sendToContentScriptResilient !== 'function') {
+        return {};
+      }
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 15000);
+      const result = await sendToContentScriptResilient(
+        'signup-page',
+        {
+          type: 'GET_LOGIN_AUTH_STATE',
+          source: 'background',
+          payload: {},
+        },
+        {
+          timeoutMs,
+          responseTimeoutMs: timeoutMs,
+          retryDelayMs: 600,
+          logMessage: options.logMessage || `步骤 ${visibleStep}：认证页正在切换，等待页面重新就绪...`,
+          logStep: visibleStep,
+          logStepKey: 'fetch-login-code',
+        }
+      );
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+      return result || {};
+    }
+
+    async function submitAddEmailIfNeeded(state, visibleStep, initialPageState = null) {
+      if (typeof resolveSignupEmailForFlow !== 'function' || typeof sendToContentScriptResilient !== 'function') {
+        return { state, pageState: initialPageState };
+      }
+
+      const pageState = initialPageState?.state
+        ? initialPageState
+        : await getLoginAuthStateFromContent(visibleStep, {
+          timeoutMs: 15000,
+          logMessage: `步骤 ${visibleStep}：正在确认是否已进入添加邮箱页...`,
+        });
+      if (pageState?.state !== 'add_email_page') {
+        return { state, pageState };
+      }
+
+      const latestState = typeof getState === 'function' ? await getState() : state;
+      const resolvedEmail = await resolveSignupEmailForFlow(latestState);
+      await addLog(`步骤 ${visibleStep}：检测到添加邮箱页，正在添加邮箱 ${resolvedEmail} 并进入邮箱验证码页...`);
+
+      const timeoutMs = typeof getOAuthFlowStepTimeoutMs === 'function'
+        ? await getOAuthFlowStepTimeoutMs(60000, {
+          step: visibleStep,
+          actionLabel: '添加邮箱并进入验证码页',
+          oauthUrl: latestState?.oauthUrl || state?.oauthUrl || '',
+        })
+        : 60000;
+      const result = await sendToContentScriptResilient(
+        'signup-page',
+        {
+          type: 'SUBMIT_ADD_EMAIL',
+          source: 'background',
+          payload: { email: resolvedEmail },
+        },
+        {
+          timeoutMs,
+          responseTimeoutMs: timeoutMs,
+          retryDelayMs: 700,
+          logMessage: `步骤 ${visibleStep}：添加邮箱页面正在切换，等待邮箱验证码页就绪...`,
+          logStep: visibleStep,
+          logStepKey: 'fetch-login-code',
+        }
+      );
+
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+
+      const displayedEmail = normalizeStep8VerificationTargetEmail(result?.displayedEmail || resolvedEmail);
+      await setState({
+        email: resolvedEmail,
+        step8VerificationTargetEmail: displayedEmail,
+      });
+
+      return {
+        state: {
+          ...latestState,
+          email: resolvedEmail,
+          step8VerificationTargetEmail: displayedEmail,
+        },
+        pageState: {
+          state: result?.directOAuthConsentPage ? 'oauth_consent_page' : 'verification_page',
+          displayedEmail,
+          url: result?.url || pageState?.url || '',
+        },
+      };
     }
 
     async function completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep, options = {}) {
@@ -130,12 +220,69 @@
       return /add-phone|手机号页面|手机号验证页|phone[\s-_]verification|phone\s+number/i.test(message);
     }
 
+    function isStep8EmailInUseError(error) {
+      const message = String(error?.message || error || '');
+      return /STEP8_EMAIL_IN_USE::|email_in_use|email\s+(?:address\s+)?already\s+exists|already\s+associated\s+with\s+this\s+email/i.test(message);
+    }
+
+    function isStep8MaxCheckAttemptsError(error) {
+      const message = String(error?.message || error || '');
+      return /AUTH_MAX_CHECK_ATTEMPTS::|max_check_attempts/i.test(message);
+    }
+
+    async function openStep8AddEmailPage(state, visibleStep, reasonLabel = '') {
+      const tabId = typeof getTabId === 'function' ? await getTabId('signup-page') : 0;
+      const url = STEP8_ADD_EMAIL_URL;
+      if (tabId && chrome?.tabs?.update) {
+        await chrome.tabs.update(tabId, { url, active: true });
+      } else if (typeof reuseOrCreateTab === 'function') {
+        await reuseOrCreateTab('signup-page', url);
+      } else {
+        throw new Error(`Step ${visibleStep}: cannot reopen add-email page for Step 8 recovery.`);
+      }
+      if (typeof sleepWithStop === 'function') {
+        await sleepWithStop(1000);
+      }
+      await addLog(
+        `步骤 ${visibleStep}：重新打开添加邮箱页面${reasonLabel ? `（${reasonLabel}）` : ''}。`,
+        'warn'
+      );
+      return {
+        ...(state || {}),
+        oauthUrl: state?.oauthUrl || url,
+      };
+    }
+
+    async function resetStep8AfterEmailInUse(state, visibleStep) {
+      const currentEmail = String(state?.email || '').trim();
+      await setState({
+        email: null,
+        step8VerificationTargetEmail: '',
+        loginVerificationRequestedAt: null,
+      });
+      if (currentEmail) {
+        await addLog(`步骤 ${visibleStep}：检测到邮箱 ${currentEmail} 已被占用，已清理运行态并准备重新获取新邮箱。`, 'warn');
+      } else {
+        await addLog(`步骤 ${visibleStep}：检测到邮箱已被占用，已清理运行态并准备重新获取新邮箱。`, 'warn');
+      }
+    }
+
+    async function resetStep8AfterMaxCheckAttempts(visibleStep) {
+      await setState({
+        step8VerificationTargetEmail: '',
+        loginVerificationRequestedAt: null,
+      });
+      await addLog(`步骤 ${visibleStep}：检测到 max_check_attempts，将重新开始当前添加邮箱步骤，不继续点击重试。`, 'warn');
+    }
+
     async function recoverStep8PollingFailure(currentState, visibleStep) {
       const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
       try {
         const pageState = await ensureStep8VerificationPageReady({
           visibleStep,
           authLoginStep,
+          allowPhoneVerificationPage: true,
+          allowAddEmailPage: true,
           timeoutMs: await getStep8ReadyTimeoutMs(
             '登录验证码轮询异常后复核认证页状态',
             currentState?.oauthUrl || '',
@@ -146,9 +293,9 @@
           await completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep, { fromRecovery: true });
           return { outcome: 'completed' };
         }
-        if (pageState?.state === 'verification_page') {
+        if (pageState?.state === 'verification_page' || pageState?.state === 'phone_verification_page' || pageState?.state === 'add_email_page') {
           await addLog(
-            `步骤 ${visibleStep}：检测到邮箱轮询/页面通信异常，但认证页仍在验证码页，先在当前链路重试，不回到步骤 ${authLoginStep}。`,
+            `步骤 ${visibleStep}：检测到邮箱轮询/页面通信异常，但认证页仍在当前登录后续页面，先在当前链路重试，不回到步骤 ${authLoginStep}。`,
             'warn'
           );
           return { outcome: 'retry_without_step7' };
@@ -250,40 +397,58 @@
         await reuseOrCreateTab('signup-page', state.oauthUrl);
       }
 
-      if (isPhoneLoginState(state)) {
-        return executeLoginPhoneCodeStep(state, authTabId, visibleStep);
-      }
-
-      const mail = getMailConfig(state);
-      if (mail.error) throw new Error(mail.error);
       const stateLastResendAt = Number(state?.loginVerificationRequestedAt) || 0;
       let latestResendAt = Math.max(0, Number(runtime?.stickyLastResendAt) || 0, stateLastResendAt);
       const notifyResendRequestedAt = typeof runtime?.onResendRequestedAt === 'function'
         ? runtime.onResendRequestedAt
         : null;
 
-      const stepStartedAt = Date.now();
-      const verificationFilterAfterTimestamp = mail.provider === '2925'
-        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
-        : stepStartedAt;
-      const verificationSessionKey = `8:${stepStartedAt}`;
-
       throwIfStopped();
-      const pageState = await ensureStep8VerificationPageReady({
+      let pageState = await ensureStep8VerificationPageReady({
         visibleStep,
         authLoginStep: getAuthLoginStepForVisibleStep(visibleStep),
+        allowPhoneVerificationPage: true,
+        allowAddEmailPage: true,
         timeoutMs: await getStep8ReadyTimeoutMs('确认登录验证码页已就绪', state?.oauthUrl || '', visibleStep),
       });
       if (pageState?.state === 'oauth_consent_page') {
         await completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep);
         return;
       }
+      if (pageState?.state === 'phone_verification_page') {
+        return executeLoginPhoneCodeStep(state, authTabId, visibleStep);
+      }
+
+      let preparedState = state;
+      const addEmailPreparation = await submitAddEmailIfNeeded(preparedState, visibleStep, pageState);
+      preparedState = addEmailPreparation?.state || preparedState;
+      pageState = addEmailPreparation?.pageState || pageState;
+      if (pageState?.state === 'oauth_consent_page') {
+        await completeStep8WhenAuthAlreadyOnOauthConsent(visibleStep);
+        return;
+      }
+      if (pageState?.state === 'phone_verification_page') {
+        return executeLoginPhoneCodeStep(preparedState, authTabId, visibleStep);
+      }
+
+      const preparedStateLastResendAt = Number(preparedState?.loginVerificationRequestedAt) || 0;
+      if (preparedStateLastResendAt > 0) {
+        latestResendAt = Math.max(latestResendAt, preparedStateLastResendAt);
+      }
+
+      const mail = getMailConfig(preparedState);
+      if (mail.error) throw new Error(mail.error);
+      const stepStartedAt = Date.now();
+      const verificationFilterAfterTimestamp = mail.provider === '2925'
+        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
+        : stepStartedAt;
+      const verificationSessionKey = `8:${stepStartedAt}`;
       const shouldCompareVerificationEmail = mail.provider !== '2925';
       const displayedVerificationEmail = shouldCompareVerificationEmail
         ? normalizeStep8VerificationTargetEmail(pageState?.displayedEmail)
         : '';
       const fixedTargetEmail = shouldCompareVerificationEmail
-        ? (displayedVerificationEmail || normalizeStep8VerificationTargetEmail(state?.email))
+        ? (displayedVerificationEmail || normalizeStep8VerificationTargetEmail(preparedState?.email))
         : '';
 
       await setState({
@@ -295,7 +460,7 @@
         await addLog(`步骤 ${visibleStep}：已固定当前验证码页显示邮箱 ${displayedVerificationEmail} 作为后续匹配目标。`, 'info');
       }
 
-      if (shouldUseCustomRegistrationEmail(state)) {
+      if (shouldUseCustomRegistrationEmail(preparedState)) {
         await confirmCustomVerificationStepBypass(8, {
           completionStep: visibleStep,
           promptStep: visibleStep,
@@ -306,7 +471,7 @@
       if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
         await addLog(`步骤 ${visibleStep}：正在确认 iCloud 邮箱登录态...`, 'info');
         await ensureIcloudMailSession({
-          state,
+          state: preparedState,
           step: 8,
           actionLabel: `步骤 ${visibleStep}：确认 iCloud 邮箱登录态`,
         });
@@ -323,10 +488,10 @@
         await addLog(`步骤 ${visibleStep}：正在打开${mail.label}...`);
         if (mail.provider === '2925' && typeof ensureMail2925MailboxSession === 'function') {
           await ensureMail2925MailboxSession({
-            accountId: state.currentMail2925AccountId || null,
+            accountId: preparedState.currentMail2925AccountId || null,
             forceRelogin: false,
-            allowLoginWhenOnLoginPage: Boolean(state?.mail2925UseAccountPool),
-            expectedMailboxEmail: getExpectedMail2925MailboxEmail(state),
+            allowLoginWhenOnLoginPage: Boolean(preparedState?.mail2925UseAccountPool),
+            expectedMailboxEmail: getExpectedMail2925MailboxEmail(preparedState),
             actionLabel: `Step ${visibleStep}: ensure 2925 mailbox session`,
           });
         } else {
@@ -338,14 +503,14 @@
       }
 
       await resolveVerificationStep(8, {
-        ...state,
+        ...preparedState,
         step8VerificationTargetEmail: displayedVerificationEmail || '',
       }, mail, {
         completionStep: visibleStep,
         filterAfterTimestamp: verificationFilterAfterTimestamp,
         sessionKey: verificationSessionKey,
         disableTimeBudgetCap: mail.provider === '2925',
-        getRemainingTimeMs: getStep8RemainingTimeResolver(state?.oauthUrl || '', visibleStep),
+        getRemainingTimeMs: getStep8RemainingTimeResolver(preparedState?.oauthUrl || '', visibleStep),
         requestFreshCodeFirst: false,
         lastResendAt: latestResendAt,
         onResendRequestedAt: async (requestedAt) => {
@@ -381,6 +546,7 @@
       let stickyLastResendAt = Number(state?.loginVerificationRequestedAt) || 0;
       let retryWithoutStep7Streak = 0;
       const maxRetryWithoutStep7Streak = 3;
+      let currentStepRecoveryAttempt = 0;
 
       while (true) {
         try {
@@ -403,6 +569,28 @@
           const authLoginStep = getAuthLoginStepForVisibleStep(visibleStep);
           let currentError = err;
           let retryWithoutStep7 = false;
+
+          if (isStep8EmailInUseError(currentError) || isStep8MaxCheckAttemptsError(currentError)) {
+            currentStepRecoveryAttempt += 1;
+            if (currentStepRecoveryAttempt > STEP8_CURRENT_STEP_RECOVERY_MAX_ATTEMPTS) {
+              throw currentError;
+            }
+            if (isStep8EmailInUseError(currentError)) {
+              await resetStep8AfterEmailInUse(currentState, visibleStep);
+              await openStep8AddEmailPage(currentState, visibleStep, 'email_in_use');
+            } else {
+              await resetStep8AfterMaxCheckAttempts(visibleStep);
+              await openStep8AddEmailPage(currentState, visibleStep, 'max_check_attempts');
+            }
+            const latestState = typeof getState === 'function' ? await getState() : currentState;
+            currentState = {
+              ...(currentState || {}),
+              ...(latestState || {}),
+              oauthUrl: currentState?.oauthUrl || latestState?.oauthUrl || STEP8_ADD_EMAIL_URL,
+            };
+            continue;
+          }
+
           const isMailPollingError = isVerificationMailPollingError(err);
           if (isMailPollingError && !isStep8RestartStep7Error(err)) {
             const recovery = await recoverStep8PollingFailure(currentState, visibleStep);
