@@ -221,11 +221,63 @@
       return signupTabId;
     }
 
-    async function executeSignupPhoneEntry(state) {
+    function normalizeSignupPhoneActivationForStep2(activation) {
+      if (typeof phoneVerificationHelpers?.normalizeActivation === 'function') {
+        return phoneVerificationHelpers.normalizeActivation(activation);
+      }
+      if (!activation || typeof activation !== 'object' || Array.isArray(activation)) {
+        return null;
+      }
+      const activationId = String(activation.activationId ?? activation.id ?? activation.activation ?? '').trim();
+      const phoneNumber = String(activation.phoneNumber ?? activation.number ?? activation.phone ?? '').trim();
+      if (!activationId || !phoneNumber) {
+        return null;
+      }
+      return {
+        ...activation,
+        activationId,
+        phoneNumber,
+      };
+    }
+
+    function getSignupPhoneNumberFromState(state = {}) {
+      return String(
+        state?.signupPhoneNumber
+        || (String(state?.accountIdentifierType || '').trim().toLowerCase() === 'phone' ? state?.accountIdentifier : '')
+        || ''
+      ).trim();
+    }
+
+    async function resolveSignupPhoneForStep2(state = {}) {
+      const existingActivation = normalizeSignupPhoneActivationForStep2(state?.signupPhoneActivation);
+      if (existingActivation?.phoneNumber) {
+        await addLog(`步骤 2：复用当前注册手机号 ${existingActivation.phoneNumber}，不重新获取号码。`);
+        return {
+          phoneNumber: existingActivation.phoneNumber,
+          activation: existingActivation,
+        };
+      }
+
+      const manualPhoneNumber = getSignupPhoneNumberFromState(state);
+      if (manualPhoneNumber) {
+        await addLog(`步骤 2：使用手动填写的注册手机号 ${manualPhoneNumber}，本轮不会重新获取号码。`, 'warn');
+        return {
+          phoneNumber: manualPhoneNumber,
+          activation: null,
+        };
+      }
+
       if (typeof phoneVerificationHelpers?.prepareSignupPhoneActivation !== 'function') {
         throw new Error('手机号注册流程不可用：接码模块尚未初始化。');
       }
+      const activation = await phoneVerificationHelpers.prepareSignupPhoneActivation(state);
+      return {
+        phoneNumber: activation.phoneNumber,
+        activation,
+      };
+    }
 
+    async function executeSignupPhoneEntry(state) {
       let signupTabId = await ensureSignupTabForStep2();
       if (await shouldForceAuthEntryRetry(signupTabId)) {
         await addLog('步骤 2：检测到当前位于已登录 ChatGPT 首页，先切换认证入口页再提交手机号。', 'warn');
@@ -261,8 +313,9 @@
         }
       }
 
-      const activation = await phoneVerificationHelpers.prepareSignupPhoneActivation(state);
-      let step2Result = await submitSignupPhone(activation.phoneNumber, activation, {
+      const signupPhone = await resolveSignupPhoneForStep2(state);
+      const { phoneNumber, activation } = signupPhone;
+      let step2Result = await submitSignupPhone(phoneNumber, activation, {
         timeoutMs: 45000,
         retryDelayMs: 700,
         logMessage: '步骤 2：官网注册入口正在切换，等待手机号注册入口恢复...',
@@ -278,7 +331,7 @@
           await addLog('步骤 2：手机号注册入口不可用或通信超时，正在重新准备手机号注册入口后重试一次...', 'warn');
           signupTabId = (await ensureSignupEntryPageReady(2)).tabId;
           await ensureSignupPhoneEntryReady(signupTabId);
-          step2Result = await submitSignupPhone(activation.phoneNumber, activation, {
+          step2Result = await submitSignupPhone(phoneNumber, activation, {
             timeoutMs: 45000,
             retryDelayMs: 700,
             logMessage: '步骤 2：手机号注册入口已就绪，正在重新提交手机号...',
@@ -295,22 +348,22 @@
         ) {
           return;
         }
-        if (typeof phoneVerificationHelpers?.cancelSignupPhoneActivation === 'function') {
+        if (activation && typeof phoneVerificationHelpers?.cancelSignupPhoneActivation === 'function') {
           await phoneVerificationHelpers.cancelSignupPhoneActivation(state, activation).catch(() => {});
         }
         throw new Error(finalErrorMessage);
       }
 
-      await addLog(`步骤 2：手机号 ${activation.phoneNumber} 已提交，正在等待页面加载并确认下一步入口...`);
+      await addLog(`步骤 2：手机号 ${phoneNumber} 已提交，正在等待页面加载并确认下一步入口...`);
       const landingResult = await ensureSignupPostIdentityPageReadyInTab(signupTabId, 2, {
         skipUrlWait: Boolean(step2Result?.alreadyOnPasswordPage),
       });
 
       await completeStepFromBackground(2, {
         accountIdentifierType: 'phone',
-        accountIdentifier: activation.phoneNumber,
-        signupPhoneNumber: activation.phoneNumber,
-        signupPhoneActivation: activation,
+        accountIdentifier: phoneNumber,
+        signupPhoneNumber: phoneNumber,
+        signupPhoneActivation: activation || null,
         nextSignupState: landingResult?.state || step2Result?.state || 'password_page',
         nextSignupUrl: landingResult?.url || step2Result?.url || '',
         skippedPasswordStep: landingResult?.state === 'phone_verification_page' || landingResult?.state === 'profile_page',

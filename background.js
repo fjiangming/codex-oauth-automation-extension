@@ -2617,9 +2617,58 @@ function broadcastIcloudAliasesChanged(payload = {}) {
   }).catch(() => { });
 }
 
+function normalizePhoneIdentityDigits(value = '') {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function getPhoneActivationPhoneNumber(activation = null) {
+  if (!activation || typeof activation !== 'object' || Array.isArray(activation)) {
+    return '';
+  }
+  return String(
+    activation.phoneNumber
+    ?? activation.number
+    ?? activation.phone
+    ?? ''
+  ).trim();
+}
+
+function isPhoneActivationForNumber(activation, phoneNumber) {
+  const activationPhone = getPhoneActivationPhoneNumber(activation);
+  const targetPhone = String(phoneNumber || '').trim();
+  if (!activationPhone || !targetPhone) {
+    return false;
+  }
+  if (activationPhone === targetPhone) {
+    return true;
+  }
+  const activationDigits = normalizePhoneIdentityDigits(activationPhone);
+  const targetDigits = normalizePhoneIdentityDigits(targetPhone);
+  return Boolean(activationDigits && targetDigits && activationDigits === targetDigits);
+}
+
 async function setEmailStateSilently(email) {
-  await setState({ email });
-  broadcastDataUpdate({ email });
+  const normalizedEmail = String(email || '').trim() || null;
+  const currentState = await getState();
+  const updates = {
+    email: normalizedEmail,
+  };
+
+  if (normalizedEmail) {
+    updates.accountIdentifierType = 'email';
+    updates.accountIdentifier = normalizedEmail;
+    updates.signupPhoneNumber = '';
+    updates.signupPhoneActivation = null;
+    updates.signupPhoneCompletedActivation = null;
+    updates.signupPhoneVerificationRequestedAt = null;
+    updates.signupPhoneVerificationPurpose = '';
+  } else if (String(currentState?.accountIdentifierType || '').trim().toLowerCase() === 'email') {
+    updates.accountIdentifierType = null;
+    updates.accountIdentifier = '';
+  }
+
+  await setState(updates);
+  broadcastDataUpdate(updates);
 }
 
 async function setEmailState(email) {
@@ -2640,9 +2689,21 @@ async function setSignupPhoneStateSilently(phoneNumber) {
   if (normalizedPhoneNumber) {
     updates.accountIdentifierType = 'phone';
     updates.accountIdentifier = normalizedPhoneNumber;
+    if (!isPhoneActivationForNumber(currentState?.signupPhoneActivation, normalizedPhoneNumber)) {
+      updates.signupPhoneActivation = null;
+      updates.signupPhoneVerificationRequestedAt = null;
+      updates.signupPhoneVerificationPurpose = '';
+    }
+    if (!isPhoneActivationForNumber(currentState?.signupPhoneCompletedActivation, normalizedPhoneNumber)) {
+      updates.signupPhoneCompletedActivation = null;
+    }
   } else if (String(currentState?.accountIdentifierType || '').trim().toLowerCase() === 'phone') {
     updates.accountIdentifierType = null;
     updates.accountIdentifier = '';
+    updates.signupPhoneActivation = null;
+    updates.signupPhoneCompletedActivation = null;
+    updates.signupPhoneVerificationRequestedAt = null;
+    updates.signupPhoneVerificationPurpose = '';
   }
 
   await setState(updates);
@@ -10051,7 +10112,7 @@ async function resumeAutoRun() {
 // ============================================================
 
 const SIGNUP_ENTRY_URL = 'https://chatgpt.com/';
-const SIGNUP_PAGE_INJECT_FILES = ['content/utils.js', 'content/auth-page-recovery.js', 'content/phone-auth.js', 'content/signup-page.js'];
+const SIGNUP_PAGE_INJECT_FILES = ['content/utils.js', 'content/auth-page-recovery.js', 'content/phone-country-utils.js', 'content/phone-auth.js', 'content/signup-page.js'];
 const panelBridge = self.MultiPageBackgroundPanelBridge?.createPanelBridge({
   chrome,
   addLog,

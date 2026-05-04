@@ -181,6 +181,34 @@ test('message router syncs signup phone runtime state from step 2 payload immedi
   assert.deepStrictEqual(events.signupPhoneStates, []);
 });
 
+test('message router clears stale signup phone runtime when step 2 resolves email identity', async () => {
+  const { router, events } = createRouter({
+    state: {
+      stepStatuses: { 3: 'pending' },
+      accountIdentifierType: 'phone',
+      accountIdentifier: '+66959916439',
+      signupPhoneNumber: '+66959916439',
+      signupPhoneActivation: { activationId: 'old', phoneNumber: '+66959916439' },
+    },
+  });
+
+  await router.handleStepData(2, {
+    email: 'user@example.com',
+    accountIdentifierType: 'email',
+    accountIdentifier: 'user@example.com',
+  });
+
+  assert.deepStrictEqual(events.emailStates, ['user@example.com']);
+  assert.deepStrictEqual(events.signupPhoneSilentStates, [null]);
+  assert.ok(events.stateUpdates.some((updates) => (
+    updates.accountIdentifierType === 'email'
+    && updates.accountIdentifier === 'user@example.com'
+    && updates.signupPhoneNumber === ''
+    && updates.signupPhoneActivation === null
+    && updates.signupPhoneCompletedActivation === null
+  )));
+});
+
 test('message router does not overwrite a completed step 3 when step 2 is replayed', async () => {
   const { router, events } = createRouter({
     state: { stepStatuses: { 3: 'completed' } },

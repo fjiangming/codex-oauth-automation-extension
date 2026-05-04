@@ -179,6 +179,59 @@
         : '';
     }
 
+    function resolveEmailIdentityPayload(payload = {}) {
+      const directEmail = String(payload?.email || '').trim();
+      if (directEmail) {
+        return directEmail;
+      }
+      return String(payload?.accountIdentifierType || '').trim().toLowerCase() === 'email'
+        ? String(payload?.accountIdentifier || '').trim()
+        : '';
+    }
+
+    async function syncStepAccountIdentityFromPayload(payload = {}) {
+      const identifierType = String(payload?.accountIdentifierType || '').trim().toLowerCase();
+      const signupPhoneNumber = resolveSignupPhonePayload(payload);
+      if (identifierType === 'phone' || signupPhoneNumber) {
+        if (signupPhoneNumber) {
+          await setSignupPhoneStateSilently(signupPhoneNumber);
+        }
+        const updates = {};
+        if (Object.prototype.hasOwnProperty.call(payload, 'signupPhoneActivation')) {
+          updates.signupPhoneActivation = payload.signupPhoneActivation || null;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'signupPhoneCompletedActivation')) {
+          updates.signupPhoneCompletedActivation = payload.signupPhoneCompletedActivation || null;
+        }
+        if (Object.keys(updates).length) {
+          await setState(updates);
+          broadcastDataUpdate(updates);
+        }
+        return;
+      }
+
+      const email = resolveEmailIdentityPayload(payload);
+      if (identifierType === 'email' || email) {
+        if (email) {
+          await setEmailState(email);
+        }
+        const updates = {
+          signupPhoneNumber: '',
+          signupPhoneActivation: null,
+          signupPhoneCompletedActivation: null,
+          signupPhoneVerificationRequestedAt: null,
+          signupPhoneVerificationPurpose: '',
+          ...(email ? {
+            accountIdentifierType: 'email',
+            accountIdentifier: email,
+          } : {}),
+        };
+        await setSignupPhoneStateSilently(null);
+        await setState(updates);
+        broadcastDataUpdate(updates);
+      }
+    }
+
     function isStepProtectedFromAutoSkip(status) {
       return status === 'running'
         || status === 'completed'
@@ -367,15 +420,7 @@
           break;
         }
         case 2:
-          if (payload.email) {
-            await setEmailState(payload.email);
-          }
-          {
-            const signupPhoneNumber = resolveSignupPhonePayload(payload);
-            if (signupPhoneNumber) {
-              await setSignupPhoneStateSilently(signupPhoneNumber);
-            }
-          }
+          await syncStepAccountIdentityFromPayload(payload);
           if (payload.skipRegistrationFlow) {
             const latestState = await getState();
             for (const skipStep of [3, 4, 5]) {
@@ -399,13 +444,7 @@
           }
           break;
         case 3:
-          if (payload.email) await setEmailState(payload.email);
-          {
-            const signupPhoneNumber = resolveSignupPhonePayload(payload);
-            if (signupPhoneNumber) {
-              await setSignupPhoneStateSilently(signupPhoneNumber);
-            }
-          }
+          await syncStepAccountIdentityFromPayload(payload);
           if (payload.signupVerificationRequestedAt) {
             await setState({ signupVerificationRequestedAt: payload.signupVerificationRequestedAt });
           }

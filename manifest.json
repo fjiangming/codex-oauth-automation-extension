@@ -51,6 +51,7 @@
         "content/activation-utils.js",
         "content/utils.js",
         "content/auth-page-recovery.js",
+        "content/phone-country-utils.js",
         "content/phone-auth.js",
         "content/signup-page.js"
       ],
