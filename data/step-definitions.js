@@ -4,6 +4,8 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_STEP_KEY = 'paypal-approve';
+  const SIGNUP_METHOD_EMAIL = 'email';
+  const SIGNUP_METHOD_PHONE = 'phone';
 
   const NORMAL_STEP_DEFINITIONS = [
     { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网' },
@@ -25,7 +27,7 @@
     { id: 4, order: 40, key: 'fetch-signup-code', title: '获取注册验证码' },
     { id: 5, order: 50, key: 'fill-profile', title: '填写姓名和生日' },
     { id: 6, order: 60, key: 'plus-checkout-create', title: '创建 Plus Checkout' },
-    { id: 7, order: 70, key: 'plus-checkout-billing', title: '填写账单并提交订阅' },
+    { id: 7, order: 70, key: 'plus-checkout-billing', title: '填写账单并提交订单' },
     { id: 8, order: 80, key: 'paypal-approve', title: 'PayPal 登录与授权' },
     { id: 9, order: 90, key: 'plus-checkout-return', title: '订阅回跳确认' },
     { id: 10, order: 100, key: 'oauth-login', title: '刷新 OAuth 并登录' },
@@ -48,6 +50,11 @@
     { id: 13, order: 130, key: 'platform-verify', title: '平台回调验证' },
   ];
 
+  const PHONE_SIGNUP_TITLE_OVERRIDES = Object.freeze({
+    'submit-signup-email': '注册并输入手机号',
+    'fetch-signup-code': '获取手机验证码',
+  });
+
   function isPlusModeEnabled(options = {}) {
     return Boolean(options?.plusModeEnabled || options?.plusMode);
   }
@@ -56,6 +63,16 @@
     return String(value || '').trim().toLowerCase() === PLUS_PAYMENT_METHOD_GOPAY
       ? PLUS_PAYMENT_METHOD_GOPAY
       : PLUS_PAYMENT_METHOD_PAYPAL;
+  }
+
+  function normalizeSignupMethod(value = '') {
+    return String(value || '').trim().toLowerCase() === SIGNUP_METHOD_PHONE
+      ? SIGNUP_METHOD_PHONE
+      : SIGNUP_METHOD_EMAIL;
+  }
+
+  function getResolvedSignupMethod(options = {}) {
+    return normalizeSignupMethod(options?.resolvedSignupMethod || options?.signupMethod);
   }
 
   function getModeStepDefinitions(options = {}) {
@@ -67,13 +84,32 @@
       : PLUS_PAYPAL_STEP_DEFINITIONS;
   }
 
+  function getPlusPaymentStepTitle(options = {}) {
+    if (!isPlusModeEnabled(options)) {
+      return '';
+    }
+    const paymentStep = getModeStepDefinitions({
+      ...options,
+      plusModeEnabled: true,
+    }).find((step) => step.key === PLUS_PAYMENT_STEP_KEY);
+    return paymentStep?.title || '';
+  }
+
+  function getResolvedStepTitle(step = {}, options = {}) {
+    if (isPlusModeEnabled(options) && step.key === PLUS_PAYMENT_STEP_KEY) {
+      return getPlusPaymentStepTitle(options) || step.title;
+    }
+    const signupMethod = getResolvedSignupMethod(options);
+    if (signupMethod === SIGNUP_METHOD_PHONE && PHONE_SIGNUP_TITLE_OVERRIDES[step.key]) {
+      return PHONE_SIGNUP_TITLE_OVERRIDES[step.key];
+    }
+    return step.title;
+  }
+
   function cloneSteps(steps = [], options = {}) {
-    const plusModeEnabled = isPlusModeEnabled(options);
     return steps.map((step) => ({
       ...step,
-      title: plusModeEnabled && step.key === PLUS_PAYMENT_STEP_KEY
-        ? getPlusPaymentStepTitle(options)
-        : step.title,
+      title: getResolvedStepTitle(step, options),
     }));
   }
 
@@ -116,23 +152,14 @@
     return match ? cloneSteps([match], options)[0] : null;
   }
 
-  function getPlusPaymentStepTitle(options = {}) {
-    if (!isPlusModeEnabled(options)) {
-      return '';
-    }
-    const paymentStep = getModeStepDefinitions({
-      ...options,
-      plusModeEnabled: true,
-    }).find((step) => step.key === 'paypal-approve');
-    return paymentStep?.title || '';
-  }
-
   return {
     STEP_DEFINITIONS: NORMAL_STEP_DEFINITIONS,
     NORMAL_STEP_DEFINITIONS,
     PLUS_STEP_DEFINITIONS: PLUS_PAYPAL_STEP_DEFINITIONS,
     PLUS_PAYPAL_STEP_DEFINITIONS,
     PLUS_GOPAY_STEP_DEFINITIONS,
+    SIGNUP_METHOD_EMAIL,
+    SIGNUP_METHOD_PHONE,
     getAllSteps,
     getLastStepId,
     getPlusPaymentStepTitle,
@@ -141,5 +168,6 @@
     getSteps,
     isPlusModeEnabled,
     normalizePlusPaymentMethod,
+    normalizeSignupMethod,
   };
 });

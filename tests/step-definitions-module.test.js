@@ -8,7 +8,9 @@ test('step definitions module exposes ordered normal and Plus step metadata', ()
 
   const api = new Function('self', `${source}; return self.MultiPageStepDefinitions;`)(globalScope);
   const steps = api.getSteps();
+  const phoneSteps = api.getSteps({ signupMethod: 'phone' });
   const plusSteps = api.getSteps({ plusModeEnabled: true });
+  const plusPhoneSteps = api.getSteps({ plusModeEnabled: true, signupMethod: 'phone' });
   const goPaySteps = api.getSteps({ plusModeEnabled: true, plusPaymentMethod: 'gopay' });
 
   assert.equal(Array.isArray(steps), true);
@@ -34,6 +36,8 @@ test('step definitions module exposes ordered normal and Plus step metadata', ()
   );
   assert.equal(steps[0].title, '打开 ChatGPT 官网');
   assert.equal(steps[5].title, '清理登录 Cookies');
+  assert.equal(phoneSteps[1].title, '注册并输入手机号');
+  assert.equal(phoneSteps[3].title, '获取手机验证码');
 
   assert.deepStrictEqual(
     plusSteps.map((step) => step.key),
@@ -56,6 +60,8 @@ test('step definitions module exposes ordered normal and Plus step metadata', ()
   assert.equal(plusSteps.some((step) => step.key === 'clear-login-cookies'), false);
   assert.equal(plusSteps.some((step) => step.key === 'fetch-login-code'), true);
   assert.equal(plusSteps.find((step) => step.key === 'paypal-approve')?.title, 'PayPal 登录与授权');
+  assert.equal(plusPhoneSteps[1].title, '注册并输入手机号');
+  assert.equal(plusPhoneSteps[3].title, '获取手机验证码');
   assert.equal(goPaySteps.some((step) => step.key === 'paypal-approve'), false);
   assert.equal(api.getStepById(8, { plusModeEnabled: true, plusPaymentMethod: 'gopay' }), null);
   assert.equal(api.getPlusPaymentStepTitle({ plusModeEnabled: true, plusPaymentMethod: 'gopay' }), '');

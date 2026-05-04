@@ -444,7 +444,19 @@ function resolveContributionModeRoutingState(state = {}) {
   };
 }
 
+function getSignupMethodForStepDefinitions(state = {}) {
+  return normalizeSignupMethod(state?.resolvedSignupMethod || state?.signupMethod);
+}
+
 function getStepDefinitionsForState(state = {}) {
+  const rootScope = typeof self !== 'undefined' ? self : globalThis;
+  if (rootScope.MultiPageStepDefinitions?.getSteps) {
+    return rootScope.MultiPageStepDefinitions.getSteps({
+      plusModeEnabled: isPlusModeState(state),
+      plusPaymentMethod: normalizePlusPaymentMethod(state?.plusPaymentMethod),
+      signupMethod: getSignupMethodForStepDefinitions(state),
+    });
+  }
   if (!isPlusModeState(state)) {
     return NORMAL_STEP_DEFINITIONS;
   }
@@ -454,6 +466,13 @@ function getStepDefinitionsForState(state = {}) {
 }
 
 function getStepIdsForState(state = {}) {
+  const definitions = getStepDefinitionsForState(state);
+  if (Array.isArray(definitions) && definitions.length) {
+    return definitions
+      .map((definition) => Number(definition?.id))
+      .filter(Number.isFinite)
+      .sort((left, right) => left - right);
+  }
   if (!isPlusModeState(state)) {
     return NORMAL_STEP_IDS;
   }
@@ -1070,9 +1089,9 @@ function normalizePhoneSmsProviderOrder(value = [], fallbackOrder = []) {
 }
 
 function normalizeSignupMethod(value = '') {
-  return String(value || '').trim().toLowerCase() === SIGNUP_METHOD_PHONE
-    ? SIGNUP_METHOD_PHONE
-    : SIGNUP_METHOD_EMAIL;
+  return String(value || '').trim().toLowerCase() === 'phone'
+    ? 'phone'
+    : 'email';
 }
 
 function canUsePhoneSignup(state = {}) {

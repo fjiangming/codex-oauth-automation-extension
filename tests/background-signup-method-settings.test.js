@@ -95,3 +95,43 @@ return {
   assert.equal(api.logs.some((entry) => /固定为邮箱注册/.test(entry.message)), true);
 });
 
+test('background step definitions resolve titles from the frozen signup method', () => {
+  const api = new Function(`
+const captured = [];
+const self = {
+  MultiPageStepDefinitions: {
+    getSteps(options) {
+      captured.push(options);
+      return [{
+        id: 2,
+        key: 'submit-signup-email',
+        title: options.signupMethod === 'phone' ? '注册并输入手机号' : '注册并输入邮箱',
+      }];
+    },
+  },
+};
+${extractFunction('isPlusModeState')}
+${extractFunction('normalizePlusPaymentMethod')}
+${extractFunction('normalizeSignupMethod')}
+${extractFunction('getSignupMethodForStepDefinitions')}
+${extractFunction('getStepDefinitionsForState')}
+return {
+  getCaptured: () => captured.slice(),
+  getStepDefinitionsForState,
+};
+`)();
+
+  const steps = api.getStepDefinitionsForState({
+    plusModeEnabled: true,
+    plusPaymentMethod: 'gopay',
+    signupMethod: 'email',
+    resolvedSignupMethod: 'phone',
+  });
+
+  assert.deepEqual(api.getCaptured(), [{
+    plusModeEnabled: true,
+    plusPaymentMethod: 'gopay',
+    signupMethod: 'phone',
+  }]);
+  assert.equal(steps[0].title, '注册并输入手机号');
+});

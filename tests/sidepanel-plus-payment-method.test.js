@@ -34,6 +34,7 @@ function extractFunction(name) {
 
 test('sidepanel step definitions keep the selected Plus payment method', () => {
   const bundle = [
+    extractFunction('normalizeSignupMethod'),
     extractFunction('normalizePlusPaymentMethod'),
     extractFunction('getStepDefinitionsForMode'),
     extractFunction('rebuildStepDefinitionState'),
@@ -52,6 +53,8 @@ const window = {
 };
 let currentPlusModeEnabled = false;
 let currentPlusPaymentMethod = 'paypal';
+let currentSignupMethod = 'email';
+const DEFAULT_SIGNUP_METHOD = 'email';
 let stepDefinitions = [];
 let STEP_IDS = [];
 let STEP_DEFAULT_STATUSES = {};
@@ -74,9 +77,26 @@ return {
   assert.deepEqual(api.getStepIds(), [7]);
   assert.deepEqual(api.calls[0], {
     type: 'getSteps',
-    options: { plusModeEnabled: true, plusPaymentMethod: 'gopay' },
+    options: { plusModeEnabled: true, plusPaymentMethod: 'gopay', signupMethod: 'email' },
   });
   assert.deepEqual(api.calls[1], { type: 'render', stepIds: [7] });
+});
+
+test('sidepanel normalizeSignupMethod stays independent from signup constants during bootstrap', () => {
+  const source = extractFunction('normalizeSignupMethod');
+  assert.doesNotMatch(source, /SIGNUP_METHOD_(PHONE|EMAIL)/);
+});
+
+test('sidepanel signup method UI syncs shared step definitions with the selected signup method', () => {
+  const source = extractFunction('updateSignupMethodUI');
+  assert.match(source, /syncStepDefinitionsForMode\(/);
+  assert.match(source, /signupMethod:\s*selectedMethod/);
+});
+
+test('sidepanel applies restored signup method when rebuilding shared step definitions on load', () => {
+  const source = extractFunction('applySettingsState');
+  assert.match(source, /syncStepDefinitionsForMode\(Boolean\(state\?\.plusModeEnabled\),\s*\{/);
+  assert.match(source, /signupMethod:\s*state\?\.signupMethod/);
 });
 
 test('sidepanel Plus UI hides PayPal account selector while GoPay is selected', () => {

@@ -441,8 +441,12 @@ const stepsList = document.querySelector('.steps-list');
 const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
 const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
 const DEFAULT_PLUS_PAYMENT_METHOD = PLUS_PAYMENT_METHOD_PAYPAL;
+const SIGNUP_METHOD_EMAIL = 'email';
+const SIGNUP_METHOD_PHONE = 'phone';
+const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
 let currentPlusModeEnabled = false;
 let currentPlusPaymentMethod = DEFAULT_PLUS_PAYMENT_METHOD;
+let currentSignupMethod = DEFAULT_SIGNUP_METHOD;
 let heroSmsCountrySelectionOrder = [];
 let phoneSmsProviderOrderSelection = [];
 let heroSmsCountryMenuSearchKeyword = '';
@@ -458,7 +462,10 @@ const fiveSimCountrySearchTextByCode = new Map();
 let nexSmsCountrySelectionOrder = [];
 let nexSmsCountryMenuSearchKeyword = '';
 const nexSmsCountrySearchTextById = new Map();
-let stepDefinitions = getStepDefinitionsForMode(false, currentPlusPaymentMethod);
+let stepDefinitions = getStepDefinitionsForMode(false, {
+  plusPaymentMethod: currentPlusPaymentMethod,
+  signupMethod: currentSignupMethod,
+});
 let STEP_IDS = stepDefinitions.map((step) => Number(step.id)).filter(Number.isFinite);
 let STEP_DEFAULT_STATUSES = Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending']));
 let SKIPPABLE_STEPS = new Set(STEP_IDS);
@@ -494,9 +501,6 @@ const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
 const PHONE_SMS_PROVIDER_HERO_SMS = PHONE_SMS_PROVIDER_HERO;
 const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
-const SIGNUP_METHOD_EMAIL = 'email';
-const SIGNUP_METHOD_PHONE = 'phone';
-const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
 const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
   PHONE_SMS_PROVIDER_HERO,
   PHONE_SMS_PROVIDER_FIVE_SIM,
@@ -714,9 +718,13 @@ function getStepDefinitionsForMode(plusModeEnabled = false, options = {}) {
   const rawPaymentMethod = typeof options === 'string'
     ? options
     : (options.plusPaymentMethod || currentPlusPaymentMethod || defaultMethod);
+  const rawSignupMethod = typeof options === 'string'
+    ? currentSignupMethod
+    : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
   return (window.MultiPageStepDefinitions?.getSteps?.({
     plusModeEnabled,
     plusPaymentMethod: normalizePlusPaymentMethod(rawPaymentMethod),
+    signupMethod: normalizeSignupMethod(rawSignupMethod),
   }) || [])
     .sort((left, right) => {
       const leftOrder = Number.isFinite(left.order) ? left.order : left.id;
@@ -732,8 +740,15 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
   const rawPaymentMethod = typeof options === 'string'
     ? options
     : (options.plusPaymentMethod || currentPlusPaymentMethod || defaultMethod);
+  const rawSignupMethod = typeof options === 'string'
+    ? currentSignupMethod
+    : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
   currentPlusPaymentMethod = normalizePlusPaymentMethod(rawPaymentMethod);
-  stepDefinitions = getStepDefinitionsForMode(currentPlusModeEnabled, currentPlusPaymentMethod);
+  currentSignupMethod = normalizeSignupMethod(rawSignupMethod);
+  stepDefinitions = getStepDefinitionsForMode(currentPlusModeEnabled, {
+    plusPaymentMethod: currentPlusPaymentMethod,
+    signupMethod: currentSignupMethod,
+  });
   STEP_IDS = stepDefinitions.map((step) => Number(step.id)).filter(Number.isFinite);
   STEP_DEFAULT_STATUSES = Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending']));
   SKIPPABLE_STEPS = new Set(STEP_IDS);
@@ -6637,9 +6652,9 @@ function updateAccountRunHistorySettingsUI() {
 }
 
 function normalizeSignupMethod(value = '') {
-  return String(value || '').trim().toLowerCase() === SIGNUP_METHOD_PHONE
-    ? SIGNUP_METHOD_PHONE
-    : SIGNUP_METHOD_EMAIL;
+  return String(value || '').trim().toLowerCase() === 'phone'
+    ? 'phone'
+    : 'email';
 }
 
 function getSelectedSignupMethod() {
@@ -6712,6 +6727,15 @@ function updateSignupMethodUI(options = {}) {
       }
     }
   });
+  syncStepDefinitionsForMode(
+    typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
+      ? Boolean(inputPlusModeEnabled.checked)
+      : Boolean(latestState?.plusModeEnabled),
+    {
+      plusPaymentMethod: getSelectedPlusPaymentMethod(latestState),
+      signupMethod: selectedMethod,
+    }
+  );
 }
 
 function updatePhoneVerificationSettingsUI() {
@@ -7224,23 +7248,29 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
   const rawPaymentMethod = typeof plusPaymentMethodOrOptions === 'string'
     ? plusPaymentMethodOrOptions
     : (options.plusPaymentMethod || getSelectedPlusPaymentMethod(latestState));
+  const nextSignupMethod = normalizeSignupMethod(options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
   const nextPaymentMethod = normalizePlusPaymentMethod(rawPaymentMethod);
   const rootScope = typeof window !== 'undefined' ? window : globalThis;
   const currentPaymentStep = stepDefinitions.find((step) => step.key === 'paypal-approve');
   const nextPaymentTitle = rootScope.MultiPageStepDefinitions?.getPlusPaymentStepTitle?.({
     plusModeEnabled: nextPlusModeEnabled,
     plusPaymentMethod: nextPaymentMethod,
+    signupMethod: nextSignupMethod,
   });
   const paymentTitleChanged = Boolean(nextPlusModeEnabled && currentPaymentStep && nextPaymentTitle && currentPaymentStep.title !== nextPaymentTitle);
   const shouldRender = Boolean(options.render)
     || nextPlusModeEnabled !== currentPlusModeEnabled
     || nextPaymentMethod !== currentPlusPaymentMethod
+    || nextSignupMethod !== currentSignupMethod
     || paymentTitleChanged;
   if (!shouldRender) {
     return;
   }
 
-  rebuildStepDefinitionState(nextPlusModeEnabled, nextPaymentMethod);
+  rebuildStepDefinitionState(nextPlusModeEnabled, {
+    plusPaymentMethod: nextPaymentMethod,
+    signupMethod: nextSignupMethod,
+  });
   renderStepsList();
 }
 
@@ -7250,7 +7280,10 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
 
 function applySettingsState(state) {
   if (typeof syncStepDefinitionsForMode === 'function') {
-    syncStepDefinitionsForMode(Boolean(state?.plusModeEnabled), state?.plusPaymentMethod);
+    syncStepDefinitionsForMode(Boolean(state?.plusModeEnabled), {
+      plusPaymentMethod: state?.plusPaymentMethod,
+      signupMethod: state?.signupMethod,
+    });
   }
   const fallbackIpProxyService = '711proxy';
   const fallbackIpProxyMode = 'account';
