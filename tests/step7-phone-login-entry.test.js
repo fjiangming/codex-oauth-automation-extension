@@ -311,3 +311,69 @@ return {
   assert.equal(api.getVisibleCountryText(), '\u82f1\u56fd +(44)');
   assert.deepEqual(api.getClicks(), ['\u6fb3\u5927\u5229\u4e9a (+61)', '\u82f1\u56fd +(44)']);
 });
+
+function createPhoneFillApi(fillBehavior) {
+  return new Function('fillBehavior', `
+const fills = [];
+const phoneInput = {
+  value: '+44',
+  getAttribute(name) {
+    return name === 'value' ? this.value : '';
+  },
+};
+
+function fillInput(input, value) {
+  fills.push(value);
+  fillBehavior(input, value);
+}
+
+async function sleep() {}
+
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('toE164PhoneNumber')}
+${extractFunction('getPhoneInputRenderedValue')}
+${extractFunction('isPhoneInputValueComplete')}
+${extractFunction('getLoginPhoneFillCandidates')}
+${extractFunction('fillLoginPhoneInputAndConfirm')}
+
+return {
+  run() {
+    return fillLoginPhoneInputAndConfirm(phoneInput, {
+      phoneNumber: '447780579093',
+      dialCode: '44',
+      visibleStep: 7,
+    });
+  },
+  getFills() {
+    return fills.slice();
+  },
+  getValue() {
+    return phoneInput.value;
+  },
+};
+  `)(fillBehavior);
+}
+
+test('step 7 retries phone fill with e164 when the auth input keeps only the dial code', async () => {
+  const api = createPhoneFillApi((input, value) => {
+    input.value = value === '7780579093' ? '+44' : value;
+  });
+
+  const result = await api.run();
+
+  assert.equal(result.inputValue, '7780579093');
+  assert.equal(result.attemptedValue, '+447780579093');
+  assert.equal(api.getValue(), '+447780579093');
+  assert.deepEqual(api.getFills(), ['7780579093', '+447780579093']);
+});
+
+test('step 7 stops before submit when phone fill never includes the local number', async () => {
+  const api = createPhoneFillApi((input) => {
+    input.value = '+44';
+  });
+
+  await assert.rejects(api.run, /7780579093/);
+  assert.equal(api.getValue(), '+44');
+  assert.deepEqual(api.getFills(), ['7780579093', '+447780579093', '447780579093']);
+});

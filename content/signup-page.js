@@ -1822,6 +1822,68 @@ function toE164PhoneNumber(value, dialCode) {
   return `+${normalizedDialCode}${digits}`;
 }
 
+function getPhoneInputRenderedValue(phoneInput) {
+  return String(phoneInput?.value ?? phoneInput?.getAttribute?.('value') ?? '').trim();
+}
+
+function isPhoneInputValueComplete(phoneInput, phoneNumber, dialCode, expectedLocalNumber = '') {
+  const renderedDigits = normalizePhoneDigits(getPhoneInputRenderedValue(phoneInput));
+  const targetDigits = normalizePhoneDigits(phoneNumber);
+  const localDigits = normalizePhoneDigits(expectedLocalNumber || toNationalPhoneNumber(phoneNumber, dialCode));
+  const normalizedDialCode = normalizePhoneDigits(dialCode);
+  if (!renderedDigits) {
+    return false;
+  }
+  if (normalizedDialCode && renderedDigits === normalizedDialCode) {
+    return false;
+  }
+  if (localDigits && renderedDigits === localDigits) {
+    return true;
+  }
+  if (localDigits && renderedDigits.endsWith(localDigits) && renderedDigits.length > localDigits.length) {
+    return true;
+  }
+  return Boolean(targetDigits && renderedDigits === targetDigits);
+}
+
+function getLoginPhoneFillCandidates(phoneNumber, dialCode) {
+  const candidates = [
+    toNationalPhoneNumber(phoneNumber, dialCode),
+    toE164PhoneNumber(phoneNumber, dialCode),
+    normalizePhoneDigits(phoneNumber),
+  ];
+  return candidates.filter((value, index, list) => value && list.indexOf(value) === index);
+}
+
+async function fillLoginPhoneInputAndConfirm(phoneInput, options = {}) {
+  const {
+    phoneNumber = '',
+    dialCode = '',
+    visibleStep = 7,
+  } = options;
+  const localNumber = toNationalPhoneNumber(phoneNumber, dialCode);
+  if (!localNumber) {
+    throw new Error(`步骤 ${visibleStep}：手机号为空，无法填写。`);
+  }
+
+  let lastRenderedValue = '';
+  for (const candidate of getLoginPhoneFillCandidates(phoneNumber, dialCode)) {
+    fillInput(phoneInput, candidate);
+    await sleep(350);
+    lastRenderedValue = getPhoneInputRenderedValue(phoneInput);
+    if (isPhoneInputValueComplete(phoneInput, phoneNumber, dialCode, localNumber)) {
+      return {
+        inputValue: localNumber,
+        attemptedValue: candidate,
+        renderedValue: lastRenderedValue,
+      };
+    }
+  }
+
+  const displayedValue = lastRenderedValue || '空';
+  throw new Error(`步骤 ${visibleStep}：手机号填写后页面显示为 ${displayedValue}，未包含本地号码 ${localNumber}，已停止提交以避免空号提交。`);
+}
+
 function resolveSignupPhoneDialCode(phoneInput, options = {}) {
   const { phoneNumber = '', countryLabel = '' } = options;
   const displayedDialCode = getSignupPhoneDisplayedDialCode(phoneInput);
@@ -4588,8 +4650,12 @@ async function step6LoginFromPhonePage(payload, snapshot) {
 
   log(`步骤 ${visibleStep}：正在填写手机号 ${phoneNumber}...`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
   await humanPause(500, 1400);
-  fillInput(phoneInput, inputValue);
-  log(`步骤 ${visibleStep}：手机号已填写${dialCode ? `（区号 +${dialCode}）` : ''}。`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
+  const fillResult = await fillLoginPhoneInputAndConfirm(phoneInput, {
+    phoneNumber,
+    dialCode,
+    visibleStep,
+  });
+  log(`步骤 ${visibleStep}：手机号已填写${dialCode ? `（区号 +${dialCode}，本地号 ${fillResult.inputValue}）` : ''}。`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
 
   await sleep(500);
   const phoneSubmittedAt = Date.now();
