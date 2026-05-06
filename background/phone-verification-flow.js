@@ -4759,6 +4759,54 @@
       );
     }
 
+    async function markFreeReusableActivationAfterInitialSuccess(state, activation) {
+      const normalizedActivation = normalizeActivation(activation);
+      if (
+        !normalizedActivation
+        || normalizedActivation.provider !== PHONE_SMS_PROVIDER_HERO
+        || isFreeAutoReuseActivation(normalizedActivation)
+      ) {
+        return;
+      }
+
+      const latestState = {
+        ...(state || {}),
+        ...(typeof getState === 'function' ? await getState() : {}),
+      };
+      const savedActivation = normalizeFreeReusablePhoneActivation(
+        latestState[FREE_REUSABLE_PHONE_ACTIVATION_STATE_KEY]
+      );
+      if (
+        !savedActivation
+        || !(
+          isSameActivation(savedActivation, normalizedActivation)
+          || phoneNumbersMatch(savedActivation.phoneNumber, normalizedActivation.phoneNumber)
+        )
+      ) {
+        return;
+      }
+
+      const maxUses = Math.max(1, Math.floor(Number(savedActivation.maxUses) || DEFAULT_PHONE_NUMBER_MAX_USES));
+      const successfulUses = Math.min(maxUses, Math.max(1, normalizeUseCount(savedActivation.successfulUses)));
+      if (successfulUses >= maxUses) {
+        await clearFreeReusableActivation();
+        await addLog(
+          `步骤 9：白嫖复用手机号 ${savedActivation.phoneNumber} 已达到 ${successfulUses}/${maxUses} 次，已清除本地记录。`,
+          'info'
+        );
+        return;
+      }
+
+      if (successfulUses !== savedActivation.successfulUses || savedActivation.maxUses !== maxUses) {
+        await persistFreeReusableActivation({
+          ...savedActivation,
+          source: 'free-manual-reuse',
+          successfulUses,
+          maxUses,
+        });
+      }
+    }
+
     async function waitForPhoneCodeOrRotateNumber(tabId, state, activation) {
       const normalizedActivation = normalizeActivation(activation);
       if (!normalizedActivation) {
@@ -6050,6 +6098,7 @@
                 `步骤 9：已跳过 HeroSMS 完成状态，保留 ${activation.phoneNumber} 供白嫖复用。`,
                 'info'
               );
+              await markFreeReusableActivationAfterInitialSuccess(latestSuccessState, activation);
             } else {
               await completePhoneActivation(latestSuccessState, activation);
             }

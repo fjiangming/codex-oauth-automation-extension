@@ -4227,6 +4227,8 @@ test('phone verification helper preserves newly saved free-reuse activation afte
   assert.equal(currentState.freeReusablePhoneActivation.activationId, 'new-free-success');
   assert.equal(currentState.freeReusablePhoneActivation.phoneNumber, '66950007777');
   assert.equal(currentState.freeReusablePhoneActivation.source, 'free-manual-reuse');
+  assert.equal(currentState.freeReusablePhoneActivation.successfulUses, 1);
+  assert.equal(currentState.freeReusablePhoneActivation.maxUses, 3);
   assert.equal(
     requests.some((requestUrl) => (
       requestUrl.searchParams.get('action') === 'setStatus'
