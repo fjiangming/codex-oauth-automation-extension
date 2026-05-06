@@ -24,7 +24,7 @@ if (document.documentElement.getAttribute(SUB2API_PANEL_LISTENER_SENTINEL) !== '
       }).catch((err) => {
         if (isStopError(err)) {
           if (message.step) {
-            log(`步骤 ${message.step}：已被用户停止。`, 'warn');
+            log('已被用户停止。', 'warn', { step: message.step });
           }
           sendResponse({ stopped: true, error: err.message });
           return;
@@ -191,6 +191,53 @@ async function getGroupByName(origin, token, groupName) {
   return group;
 }
 
+function normalizeSub2ApiGroupNames(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\r\n,，;；]+/);
+  const seen = new Set();
+  const names = [];
+  for (const item of source) {
+    const name = String(item || '').trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names.length ? names : [SUB2API_DEFAULT_GROUP_NAME];
+}
+
+async function getGroupsByNames(origin, token, groupNames) {
+  const targetNames = normalizeSub2ApiGroupNames(groupNames);
+  const groups = await requestJson(origin, '/api/v1/admin/groups/all', {
+    method: 'GET',
+    token,
+  });
+  const matched = [];
+  const missing = [];
+
+  for (const targetName of targetNames) {
+    const normalized = targetName.toLowerCase();
+    const group = (groups || []).find((item) => {
+      const itemName = String(item?.name || '').trim().toLowerCase();
+      if (!itemName) return false;
+      if (itemName !== normalized) return false;
+      return !item.platform || item.platform === 'openai';
+    });
+    if (group) {
+      matched.push(group);
+    } else {
+      missing.push(targetName);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`SUB2API 中未找到以下 openai 分组：${missing.join('、')}。`);
+  }
+
+  return matched;
+}
+
 function normalizeSub2ApiProxyPreference(value) {
   return String(value || '').trim();
 }
@@ -352,7 +399,7 @@ function extractStateFromAuthUrl(authUrl) {
   }
 }
 
-function parseLocalhostCallback(rawUrl) {
+function parseLocalhostCallback(rawUrl, visibleStep = 10) {
   let parsed;
   try {
     parsed = new URL(rawUrl);
@@ -364,7 +411,7 @@ function parseLocalhostCallback(rawUrl) {
     throw new Error('回调 URL 协议不正确。');
   }
   if (!['localhost', '127.0.0.1'].includes(parsed.hostname)) {
-    throw new Error('步骤 10 只接受 localhost / 127.0.0.1 回调地址。');
+    throw new Error(`步骤 ${visibleStep} 只接受 localhost / 127.0.0.1 回调地址。`);
   }
   if (parsed.pathname !== '/auth/callback') {
     throw new Error('回调 URL 路径必须是 /auth/callback。');
@@ -448,16 +495,19 @@ async function step1_generateOpenAiAuthUrl(payload = {}, options = {}) {
   const { report = true } = options;
   const logStep = Number.isInteger(payload?.logStep) ? payload.logStep : 1;
   const redirectUri = normalizeRedirectUri();
-  const groupName = (payload.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME).trim() || SUB2API_DEFAULT_GROUP_NAME;
+  const groupNames = normalizeSub2ApiGroupNames(payload.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME);
+  const groupName = groupNames[0] || SUB2API_DEFAULT_GROUP_NAME;
 
   const { origin, token } = await loginSub2Api(payload);
-  const group = await getGroupByName(origin, token, groupName);
+  const groups = await getGroupsByNames(origin, token, groupNames);
+  const group = groups[0];
   const proxyPreference = resolveSub2ApiProxyPreference(payload);
   const proxy = proxyPreference ? await resolveSub2ApiProxy(origin, token, proxyPreference) : null;
   const proxyId = normalizeProxyId(proxy?.id);
   const draftName = buildDraftAccountName(group.name || groupName);
+  const groupLabel = groups.map((item) => `${item.name}（#${item.id}）`).join('、');
 
-  log(`步骤 ${logStep}：已登录 SUB2API，使用分组 ${group.name}（#${group.id}）。`);
+  log(`步骤 ${logStep}：已登录 SUB2API，使用分组 ${groupLabel}。`);
   if (proxy) {
     log(`步骤 ${logStep}：已选择 SUB2API 默认代理 ${buildProxyDisplayName(proxy)}。`);
   } else {
@@ -492,6 +542,7 @@ async function step1_generateOpenAiAuthUrl(payload = {}, options = {}) {
     sub2apiSessionId: sessionId,
     sub2apiOAuthState: oauthState,
     sub2apiGroupId: group.id,
+    sub2apiGroupIds: groups.map((item) => item.id),
     sub2apiDraftName: draftName,
     sub2apiProxyId: proxyId,
   };
@@ -504,7 +555,7 @@ async function step1_generateOpenAiAuthUrl(payload = {}, options = {}) {
 
 async function step9_submitOpenAiCallback(payload = {}) {
   const visibleStep = Number(payload?.visibleStep) || 10;
-  const callback = parseLocalhostCallback(payload.localhostUrl || '');
+  const callback = parseLocalhostCallback(payload.localhostUrl || '', visibleStep);
   const backgroundState = await getBackgroundState();
   const flowEmail = String(backgroundState.email || '').trim();
 
@@ -517,9 +568,17 @@ async function step9_submitOpenAiCallback(payload = {}) {
   const proxySelector = preferredProxyId || proxyPreference;
   const proxy = proxySelector ? await resolveSub2ApiProxy(origin, token, proxySelector) : null;
   const proxyId = normalizeProxyId(proxy?.id);
-  const group = payload.sub2apiGroupId
-    ? { id: payload.sub2apiGroupId, name: payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME }
-    : await getGroupByName(origin, token, payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME);
+  const storedGroupIds = Array.isArray(payload.sub2apiGroupIds)
+    ? payload.sub2apiGroupIds
+    : (Array.isArray(backgroundState.sub2apiGroupIds) ? backgroundState.sub2apiGroupIds : []);
+  const groupIdsFromState = storedGroupIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const groups = groupIdsFromState.length
+    ? groupIdsFromState.map((id) => ({ id }))
+    : (payload.sub2apiGroupId
+      ? [{ id: payload.sub2apiGroupId, name: payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME }]
+      : await getGroupsByNames(origin, token, payload.sub2apiGroupName || backgroundState.sub2apiGroupName || SUB2API_DEFAULT_GROUP_NAME));
 
   if (!sessionId) {
     throw new Error('缺少 SUB2API session_id，请重新执行步骤 1。');
@@ -528,11 +587,11 @@ async function step9_submitOpenAiCallback(payload = {}) {
     throw new Error('本次 localhost 回调中的 state 与步骤 1 生成的 state 不一致，请重新执行步骤 1。');
   }
 
-  log(`步骤 ${visibleStep}：正在向 SUB2API 交换 OpenAI 授权码...`);
+  log('正在向 SUB2API 交换 OpenAI 授权码...', 'info', { step: visibleStep, stepKey: 'platform-verify' });
   if (proxy) {
-    log(`步骤 ${visibleStep}：使用 SUB2API 默认代理 ${buildProxyDisplayName(proxy)}。`);
+    log(`使用 SUB2API 默认代理 ${buildProxyDisplayName(proxy)}。`, 'info', { step: visibleStep, stepKey: 'platform-verify' });
   } else {
-    log(`步骤 ${visibleStep}：未配置 SUB2API 默认代理，本次将不使用代理。`);
+    log('未配置 SUB2API 默认代理，本次将不使用代理。', 'info', { step: visibleStep, stepKey: 'platform-verify' });
   }
   const exchangeRequestBody = {
     session_id: sessionId,
@@ -551,8 +610,10 @@ async function step9_submitOpenAiCallback(payload = {}) {
   const credentials = buildOpenAiCredentials(exchangeData);
   const extra = buildOpenAiExtra(exchangeData);
   const resolvedEmail = String(exchangeData?.email || credentials?.email || '').trim();
-  const groupId = Number(group.id);
-  if (!Number.isFinite(groupId) || groupId <= 0) {
+  const groupIds = groups
+    .map((group) => Number(group.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!groupIds.length) {
     throw new Error('SUB2API 返回的目标分组 ID 无效。');
   }
   const accountName = resolvedEmail
@@ -568,7 +629,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
     concurrency: SUB2API_DEFAULT_CONCURRENCY,
     priority: SUB2API_DEFAULT_PRIORITY,
     rate_multiplier: SUB2API_DEFAULT_RATE_MULTIPLIER,
-    group_ids: [groupId],
+    group_ids: groupIds,
     auto_pause_on_expired: true,
   };
   if (proxyId) {
@@ -579,7 +640,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
     createPayload.extra = extra;
   }
 
-  log(`步骤 ${visibleStep}：授权码交换成功，正在创建 SUB2API 账号（名称：${accountName}）...`);
+  log(`授权码交换成功，正在创建 SUB2API 账号（名称：${accountName}）...`, 'info', { step: visibleStep, stepKey: 'platform-verify' });
   const createdAccount = await requestJson(origin, '/api/v1/admin/accounts', {
     method: 'POST',
     token,
@@ -587,7 +648,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
   });
 
   const verifiedStatus = `SUB2API 已创建账号 #${createdAccount?.id || 'unknown'}`;
-  log(`步骤 ${visibleStep}：${verifiedStatus}`, 'ok');
+  log(verifiedStatus, 'ok', { step: visibleStep, stepKey: 'platform-verify' });
   reportComplete(visibleStep, {
     localhostUrl: callback.url,
     verifiedStatus,

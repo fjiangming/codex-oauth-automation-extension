@@ -66,6 +66,7 @@ test('auto-run stops step4 restart path when mail2925 ends the current thread', 
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
 const chrome = {
   tabs: {
     update: async () => {},
@@ -107,6 +108,7 @@ async function ensureAutoEmailReady() {
 }
 
 async function broadcastAutoRunStatus() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
 
 async function getState() {
   return currentState;

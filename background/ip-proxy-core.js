@@ -3,6 +3,7 @@ let ipProxyAuthListenerInstalled = false;
 let ipProxyErrorListenerInstalled = false;
 let currentIpProxyAuthEntry = null;
 let ipProxyExitDetectionToken = 0;
+let ipProxyProbeInFlightPromise = null;
 let lastAppliedIpProxyEntrySignature = '';
 let ipProxyAuthHostVariantToggle = false;
 const ipProxyHostResolveCache = new Map();
@@ -47,6 +48,11 @@ const IP_PROXY_EXIT_PROBE_ENDPOINTS_711_STICKY = [
   // 与 curl 口径对齐，保持单端点，避免多站点探测引入额外波动与耗时。
   'https://ipinfo.io/json',
 ];
+const IP_PROXY_TARGET_REACHABILITY_ENDPOINTS = [
+  // Step 1 的真实目标站点；出口 IP 可用不代表该站点的 CONNECT/TLS 链路可用。
+  'https://chatgpt.com/',
+];
+const IP_PROXY_TARGET_REACHABILITY_TIMEOUT_MS = 8000;
 const IP_PROXY_BACKGROUND_PROBE_MAX_ENDPOINTS = 4;
 const IP_PROXY_BACKGROUND_PROBE_PER_ENDPOINT_TIMEOUT_MS = 3500;
 const IP_PROXY_PAGE_CONTEXT_PROBE_URL = 'https://example.com/';
@@ -573,6 +579,17 @@ function normalizeIpProxyServiceProfile(rawValue = {}) {
   const raw = (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue))
     ? rawValue
     : {};
+  const normalizeAutoSyncInterval = (value = '', fallback = 15) => {
+    const rawValue = String(value ?? '').trim();
+    if (!rawValue) {
+      return Math.max(1, Math.min(1440, Number(fallback) || 15));
+    }
+    const numeric = Number.parseInt(rawValue, 10);
+    if (!Number.isFinite(numeric)) {
+      return Math.max(1, Math.min(1440, Number(fallback) || 15));
+    }
+    return Math.max(1, Math.min(1440, numeric));
+  };
   return {
     mode: normalizeIpProxyMode(raw.mode),
     apiUrl: String(raw.apiUrl || '').trim(),
@@ -580,6 +597,8 @@ function normalizeIpProxyServiceProfile(rawValue = {}) {
     accountSessionPrefix: normalizeIpProxyAccountSessionPrefix(raw.accountSessionPrefix || ''),
     accountLifeMinutes: normalizeIpProxyAccountLifeMinutes(raw.accountLifeMinutes || ''),
     poolTargetCount: normalizeIpProxyPoolTargetCount(raw.poolTargetCount || '', 20),
+    autoSyncEnabled: Boolean(raw.autoSyncEnabled),
+    autoSyncIntervalMinutes: normalizeAutoSyncInterval(raw.autoSyncIntervalMinutes, 15),
     host: String(raw.host || '').trim(),
     port: String(normalizeIpProxyPort(raw.port || '') || ''),
     protocol: normalizeIpProxyProtocol(raw.protocol),
@@ -597,6 +616,8 @@ function buildIpProxyServiceProfileFromState(state = {}) {
     accountSessionPrefix: state?.ipProxyAccountSessionPrefix,
     accountLifeMinutes: state?.ipProxyAccountLifeMinutes,
     poolTargetCount: state?.ipProxyPoolTargetCount,
+    autoSyncEnabled: state?.ipProxyAutoSyncEnabled,
+    autoSyncIntervalMinutes: state?.ipProxyAutoSyncIntervalMinutes,
     host: state?.ipProxyHost,
     port: state?.ipProxyPort,
     protocol: state?.ipProxyProtocol,
@@ -1254,6 +1275,7 @@ function buildIpProxyRoutingStatePatch(status = {}) {
   const exitDetecting = Boolean(status?.exitDetecting);
   const exitError = String(status?.exitError || '').trim();
   const exitSource = String(status?.exitSource || '').trim().toLowerCase();
+  const exitEndpoint = String(status?.exitEndpoint || status?.endpoint || '').trim();
   return {
     ipProxyApplied: applied,
     ipProxyAppliedReason: reason,
@@ -1270,6 +1292,7 @@ function buildIpProxyRoutingStatePatch(status = {}) {
     ipProxyAppliedExitDetecting: exitDetecting,
     ipProxyAppliedExitError: exitError,
     ipProxyAppliedExitSource: exitSource,
+    ipProxyAppliedExitEndpoint: exitEndpoint,
   };
 }
 
@@ -1299,6 +1322,23 @@ async function setIpProxyLeakGuardEnabled(enabled) {
     removeRuleIds,
     addRules,
   }).catch(() => { });
+}
+
+function shouldEnableIpProxyLeakGuardForStatus(status = {}) {
+  if (!status?.enabled) {
+    return false;
+  }
+  if (status?.applied) {
+    return false;
+  }
+  const reason = String(status?.reason || '').trim().toLowerCase();
+  // connectivity_failed 表示 PAC/代理接管已经下发，只是探测或目标站点失败。
+  // 此时继续启用 DNR 会把 chatgpt.com 变成 ERR_BLOCKED_BY_CLIENT，掩盖真实代理链路结果。
+  return reason !== 'connectivity_failed';
+}
+
+async function syncIpProxyLeakGuardForStatus(status = {}) {
+  await setIpProxyLeakGuardEnabled(shouldEnableIpProxyLeakGuardForStatus(status));
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = IP_PROXY_FETCH_TIMEOUT_MS) {
@@ -1479,6 +1519,15 @@ function resolveExitProbeEndpoints(options = {}) {
   return IP_PROXY_EXIT_PROBE_ENDPOINTS.slice();
 }
 
+function resolveTargetReachabilityEndpoints(options = {}) {
+  const configured = Array.isArray(options?.targetReachabilityEndpoints)
+    ? options.targetReachabilityEndpoints.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  return configured.length
+    ? configured
+    : IP_PROXY_TARGET_REACHABILITY_ENDPOINTS.slice();
+}
+
 function applyExitRegionExpectation(status = {}, expectedRegion = '') {
   const exitIp = String(status?.exitIp || '').trim();
   const exitError = String(status?.exitError || '').trim();
@@ -1595,20 +1644,14 @@ function applyExitRegionExpectation(status = {}, expectedRegion = '') {
   const authHint = authSummary ? ` 诊断：probe:${authSummary}` : '';
   const mismatchMessage = `代理出口地区与预期不一致：期望 ${expected}，实际 ${detected || 'unknown'}${sourceHint}。${usernameHint}${missingAuthChallengeHint}${authHint}`.trim();
   if (normalizedProvider === '711proxy') {
-    if (missingAuthChallenge) {
-      return {
-        ...status,
-        applied: false,
-        reason: 'connectivity_failed',
-        error: mismatchMessage,
-        warning: '',
-      };
-    }
+    const warningPrefix = missingAuthChallenge
+      ? '地区校验未通过且未触发代理鉴权挑战，疑似匿名链路；先保留代理接管并给出强告警：'
+      : '地区校验未通过，但已保留代理接管：';
     return {
       ...status,
       applied: true,
       reason: 'applied_with_warning',
-      warning: `地区校验未通过，但已保留代理接管：${mismatchMessage}`,
+      warning: `${warningPrefix}${mismatchMessage}`,
       error: '',
     };
   }
@@ -1643,6 +1686,48 @@ function applyExitBaselineExpectation(status = {}) {
     applied: false,
     reason: 'connectivity_failed',
     error: `检测到出口 IP ${exitIp} 与系统基线网络一致，疑似未经过插件代理链路。`,
+  };
+}
+
+function shouldVerifyIpProxyTargetReachability(status = {}) {
+  if (!String(status?.exitIp || '').trim()) {
+    return false;
+  }
+  if (status?.applied === false && String(status?.reason || '').trim().toLowerCase() === 'connectivity_failed') {
+    return false;
+  }
+  return true;
+}
+
+function buildTargetReachabilityFailureMessage(status = {}, reachability = {}) {
+  const exitIp = String(status?.exitIp || '').trim();
+  const exitRegion = String(status?.exitRegion || '').trim();
+  const endpoint = String(reachability?.endpoint || reachability?.url || IP_PROXY_TARGET_REACHABILITY_ENDPOINTS[0] || '').trim();
+  const targetHost = extractProbeHostFromTabUrl(endpoint) || endpoint || 'chatgpt.com';
+  const diagnostic = String(reachability?.error || reachability?.diagnostics || '').trim();
+  const diagnosticSuffix = diagnostic ? ` 诊断：${diagnostic}` : '';
+  const exitRegionSuffix = exitRegion ? ` [${exitRegion}]` : '';
+  return `已检测到出口 IP ${exitIp}${exitRegionSuffix}，但真实目标 ${targetHost} 不可达。`
+    + `这说明代理只通过了 IP 探测，无法打开步骤 1 的 ChatGPT 页面；请更换支持 chatgpt.com CONNECT/TLS 的节点。`
+    + diagnosticSuffix;
+}
+
+function applyTargetReachabilityExpectation(status = {}, reachability = {}) {
+  if (!shouldVerifyIpProxyTargetReachability(status)) {
+    return status;
+  }
+  if (reachability?.reachable === true) {
+    return status;
+  }
+  if (reachability?.skipped === true) {
+    return status;
+  }
+  return {
+    ...status,
+    applied: false,
+    reason: 'connectivity_failed',
+    warning: '',
+    error: buildTargetReachabilityFailureMessage(status, reachability),
   };
 }
 
@@ -1944,6 +2029,35 @@ async function readExitProbeFromTabDocument(tabId) {
   return executionResults?.[0]?.result || null;
 }
 
+function appendProbeCacheBuster(rawUrl = '', key = '_multipage_proxy_probe') {
+  const text = String(rawUrl || '').trim();
+  if (!text) {
+    return '';
+  }
+  try {
+    const parsed = new URL(text);
+    parsed.searchParams.set(key, String(Date.now()));
+    return parsed.toString();
+  } catch {
+    const separator = text.includes('?') ? '&' : '?';
+    return `${text}${separator}${key}=${Date.now()}`;
+  }
+}
+
+async function readTargetReachabilityFromTabDocument(tabId) {
+  const executionResults = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'ISOLATED',
+    func: () => ({
+      href: String(location.href || ''),
+      title: String(document.title || ''),
+      readyState: String(document.readyState || ''),
+      bodyLength: Number(document.body?.innerText?.length || document.documentElement?.innerText?.length || 0),
+    }),
+  });
+  return executionResults?.[0]?.result || null;
+}
+
 async function probeExitInfoByTabNavigation(tabId, timeoutMs = 10000, errors = []) {
   return probeExitInfoByTabNavigationWithEndpoints(tabId, timeoutMs, errors, []);
 }
@@ -2196,6 +2310,101 @@ async function probeExitInfoViaExecuteScript(tabId, timeoutMs = 10000, endpoints
   });
 
   return executionResults?.[0]?.result || null;
+}
+
+async function detectIpProxyTargetReachabilityByPageContext(options = {}) {
+  const timeoutMs = Number(options?.timeoutMs) > 0
+    ? Number(options.timeoutMs)
+    : IP_PROXY_TARGET_REACHABILITY_TIMEOUT_MS;
+  const errors = Array.isArray(options?.errors) ? options.errors : [];
+  const endpoints = resolveTargetReachabilityEndpoints(options);
+  if (!endpoints.length) {
+    return { reachable: true, skipped: true, source: 'target_page_context', endpoint: '' };
+  }
+  if (!chrome.tabs?.create || !chrome.tabs?.update || !chrome.scripting?.executeScript) {
+    errors.push('target:page_context:unavailable');
+    return {
+      reachable: false,
+      endpoint: endpoints[0],
+      source: 'target_page_context_unavailable',
+      error: 'target:page_context:unavailable',
+    };
+  }
+
+  let tabId = null;
+  let createdTabId = null;
+  const navigationErrorTracker = createProbeNavigationErrorTracker(null);
+  const perEndpointTimeoutMs = Math.max(2500, Math.min(IP_PROXY_TARGET_REACHABILITY_TIMEOUT_MS, timeoutMs));
+
+  try {
+    for (let index = 0; index < endpoints.length; index += 1) {
+      const endpoint = String(endpoints[index] || '').trim();
+      if (!endpoint) {
+        continue;
+      }
+      const targetUrl = appendProbeCacheBuster(endpoint, '_multipage_proxy_target');
+      try {
+        if (!Number.isInteger(tabId)) {
+          const tab = await chrome.tabs.create({
+            url: targetUrl,
+            active: false,
+          });
+          tabId = Number(tab?.id) || null;
+          createdTabId = tabId;
+          navigationErrorTracker.setTabId(tabId);
+        } else {
+          await chrome.tabs.update(tabId, {
+            url: targetUrl,
+            active: false,
+          });
+        }
+
+        if (!Number.isInteger(tabId)) {
+          errors.push(`target:page_context:${endpoint}:no_tab`);
+          continue;
+        }
+
+        const ready = await waitForPageContextProbeTabReady(tabId, perEndpointTimeoutMs);
+        if (!ready) {
+          errors.push(`target:page_context:${endpoint}:not_ready`);
+          continue;
+        }
+
+        const documentResult = await readTargetReachabilityFromTabDocument(tabId);
+        const href = String(documentResult?.href || '').trim();
+        const host = extractProbeHostFromTabUrl(href);
+        const expectedHost = extractProbeHostFromTabUrl(endpoint);
+        if (host && expectedHost && (host === expectedHost || host.endsWith(`.${expectedHost}`))) {
+          return {
+            reachable: true,
+            endpoint,
+            url: href,
+            source: 'target_page_context',
+          };
+        }
+        errors.push(`target:page_context:${endpoint}:unexpected_url:${href || 'unknown'}`);
+      } catch (error) {
+        errors.push(`target:page_context:${endpoint}:${error?.message || error}`);
+      }
+    }
+  } finally {
+    navigationErrorTracker.appendDiagnostics(errors, 3);
+    navigationErrorTracker.dispose();
+    if (Number.isInteger(createdTabId)) {
+      try {
+        await chrome.tabs.remove(createdTabId);
+      } catch {
+        // ignore tab close failures
+      }
+    }
+  }
+
+  return {
+    reachable: false,
+    endpoint: endpoints[0],
+    source: 'target_page_context',
+    error: buildProbeDiagnosticsSummary(errors, IP_PROXY_DIAGNOSTICS_SUMMARY_MAX_ITEMS),
+  };
 }
 
 async function detectProxyExitInfoByPageContext(options = {}) {
@@ -2665,6 +2874,16 @@ function buildIpProxyPacScript(entry) {
   }
   const targetPatterns = IP_PROXY_TARGET_HOST_PATTERNS.map((pattern) => `'${String(pattern).replace(/'/g, "\\'")}'`).join(', ');
   const bypassList = IP_PROXY_BYPASS_LIST.map((pattern) => `'${String(pattern).replace(/'/g, "\\'")}'`).join(', ');
+  const forceDirectPatterns = (typeof IP_PROXY_FORCE_DIRECT_HOST_PATTERNS !== 'undefined' && Array.isArray(IP_PROXY_FORCE_DIRECT_HOST_PATTERNS)
+    ? IP_PROXY_FORCE_DIRECT_HOST_PATTERNS
+    : [])
+    .map((pattern) => `'${String(pattern).replace(/'/g, "\\'")}'`)
+    .join(', ');
+  const forceDirectFallback = String(
+    typeof IP_PROXY_FORCE_DIRECT_FALLBACK !== 'undefined' && IP_PROXY_FORCE_DIRECT_FALLBACK
+      ? IP_PROXY_FORCE_DIRECT_FALLBACK
+      : 'DIRECT'
+  ).replace(/"/g, '\\"');
   const proxyEndpoint = `${pacScheme} ${host}:${port}`;
   const routeAllLiteral = (typeof IP_PROXY_ROUTE_ALL_TRAFFIC !== 'undefined' && Boolean(IP_PROXY_ROUTE_ALL_TRAFFIC))
     ? 'true'
@@ -2677,6 +2896,22 @@ function FindProxyForURL(url, host) {
     var bypass = bypassList[i];
     if (shExpMatch(host, bypass) || host === bypass) {
       return "DIRECT";
+    }
+  }
+
+  var forceDirectPatterns = [${forceDirectPatterns}];
+  for (var fd = 0; fd < forceDirectPatterns.length; fd++) {
+    var directPattern = forceDirectPatterns[fd];
+    if (directPattern.indexOf('*.') === 0) {
+      var directSuffix = directPattern.substring(1);
+      var directHost = directPattern.substring(2);
+      if (dnsDomainIs(host, directSuffix) || host === directHost) {
+        return "${forceDirectFallback}";
+      }
+      continue;
+    }
+    if (host === directPattern || dnsDomainIs(host, '.' + directPattern)) {
+      return "${forceDirectFallback}";
     }
   }
 
@@ -3099,9 +3334,25 @@ async function applyIpProxySettingsFromState(state = {}, options = {}) {
   const expectedRegion = String(entry?.region || '').trim();
   let normalizedExitStatus = applyExitRegionExpectation(exitStatus, expectedRegion);
   normalizedExitStatus = applyExitBaselineExpectation(normalizedExitStatus);
-  if (normalizedExitStatus.reason === 'connectivity_failed') {
-    await setIpProxyLeakGuardEnabled(true);
+  if (shouldVerifyIpProxyTargetReachability(normalizedExitStatus)) {
+    const targetDiagnostics = [];
+    const reachability = await detectIpProxyTargetReachabilityByPageContext({
+      timeoutMs: IP_PROXY_TARGET_REACHABILITY_TIMEOUT_MS,
+      errors: targetDiagnostics,
+    }).catch((error) => ({
+      reachable: false,
+      endpoint: IP_PROXY_TARGET_REACHABILITY_ENDPOINTS[0],
+      source: 'target_page_context',
+      error: error?.message || String(error || 'target reachability failed'),
+    }));
+    normalizedExitStatus = applyTargetReachabilityExpectation(normalizedExitStatus, {
+      ...reachability,
+      error: reachability?.reachable
+        ? ''
+        : (reachability?.error || buildProbeDiagnosticsSummary(targetDiagnostics, IP_PROXY_DIAGNOSTICS_SUMMARY_MAX_ITEMS)),
+    });
   }
+  await syncIpProxyLeakGuardForStatus(normalizedExitStatus);
   await updateIpProxyRuntimeStatus(normalizedExitStatus);
   return normalizedExitStatus;
 }
@@ -3172,9 +3423,11 @@ async function refreshIpProxyPool(options = {}) {
           forceAuthRebind: true,
           suppressAuthRebind: false,
           resetNetworkState: true,
-          skipExitProbe: false,
+          skipExitProbe: Boolean(options?.skipExitProbe),
         }
-        : undefined
+        : {
+          skipExitProbe: Boolean(options?.skipExitProbe),
+        }
     );
   }
 
@@ -3249,9 +3502,11 @@ async function switchIpProxy(direction = 'next', options = {}) {
           forceAuthRebind: true,
           suppressAuthRebind: false,
           resetNetworkState: true,
-          skipExitProbe: false,
+          skipExitProbe: Boolean(options?.skipExitProbe),
         }
-        : undefined
+        : {
+          skipExitProbe: Boolean(options?.skipExitProbe),
+        }
     );
   }
   const summary = buildProxyPoolSummary(pool, nextIndex);
@@ -3299,7 +3554,7 @@ async function changeIpProxyExit(options = {}) {
     forceAuthRebind: true,
     suppressAuthRebind: false,
     resetNetworkState: true,
-    skipExitProbe: false,
+    skipExitProbe: Boolean(options?.skipExitProbe),
   });
 
   const runtime = getIpProxyRuntimeSnapshot(state, mode, provider);
@@ -3405,8 +3660,38 @@ async function tryRecoverApiProxyByRotation(options = {}) {
 }
 
 async function probeIpProxyExit(options = {}) {
+  if (ipProxyProbeInFlightPromise) {
+    return ipProxyProbeInFlightPromise;
+  }
+  const probePromise = (async () => {
   const state = options.state || await getState();
   if (!state?.ipProxyEnabled) {
+    if (options?.detectWhenDisabled) {
+      const diagnostics = [];
+      const exit = await detectProxyExitInfo({
+        timeoutMs: Number(options?.timeoutMs) || 10000,
+        errors: diagnostics,
+        provider: normalizeIpProxyProviderValue(state?.ipProxyService),
+        username: String(state?.ipProxyUsername || '').trim(),
+        preferPageContext: true,
+        allowBackgroundFallback: true,
+      }).catch(() => ({ ip: '', region: '', endpoint: '', source: '' }));
+      const status = {
+        enabled: false,
+        applied: false,
+        reason: 'disabled_probe_only',
+        provider: normalizeIpProxyProviderValue(state?.ipProxyService),
+        exitDetecting: false,
+        exitIp: String(exit?.ip || '').trim(),
+        exitRegion: String(exit?.region || '').trim(),
+        exitBaselineIp: String(exit?.baselineIp || '').trim(),
+        exitEndpoint: String(exit?.endpoint || '').trim(),
+        exitSource: String(exit?.source || '').trim().toLowerCase(),
+        exitError: exit?.ip ? '' : buildProbeDiagnosticsSummary(diagnostics, IP_PROXY_DIAGNOSTICS_SUMMARY_MAX_ITEMS),
+        error: '',
+      };
+      return { proxyRouting: status };
+    }
     const status = {
       enabled: false,
       applied: false,
@@ -3470,6 +3755,7 @@ async function probeIpProxyExit(options = {}) {
     exitDetecting: true,
     exitIp: '',
     exitRegion: '',
+    exitEndpoint: '',
     exitError: '',
     exitSource: '',
   };
@@ -3501,6 +3787,7 @@ async function probeIpProxyExit(options = {}) {
       exitIp: String(exit?.ip || '').trim(),
       exitRegion: String(exit?.region || '').trim(),
       exitBaselineIp: String(exit?.baselineIp || '').trim(),
+      exitEndpoint: String(exit?.endpoint || '').trim(),
       exitError: exit?.ip ? '' : buildProbeDiagnosticsSummary(diagnostics, IP_PROXY_DIAGNOSTICS_SUMMARY_MAX_ITEMS),
       exitSource: String(exit?.source || '').trim().toLowerCase(),
       authDiagnostics: statusSeed?.hasAuth ? getIpProxyAuthDiagnosticsSummary() : '',
@@ -3508,6 +3795,24 @@ async function probeIpProxyExit(options = {}) {
     const expectedRegion = String(statusSeed?.region || '').trim();
     let normalized = applyExitRegionExpectation(finalStatus, expectedRegion);
     normalized = applyExitBaselineExpectation(normalized);
+    if (shouldVerifyIpProxyTargetReachability(normalized)) {
+      const targetDiagnostics = [];
+      const reachability = await detectIpProxyTargetReachabilityByPageContext({
+        timeoutMs: IP_PROXY_TARGET_REACHABILITY_TIMEOUT_MS,
+        errors: targetDiagnostics,
+      }).catch((error) => ({
+        reachable: false,
+        endpoint: IP_PROXY_TARGET_REACHABILITY_ENDPOINTS[0],
+        source: 'target_page_context',
+        error: error?.message || String(error || 'target reachability failed'),
+      }));
+      normalized = applyTargetReachabilityExpectation(normalized, {
+        ...reachability,
+        error: reachability?.reachable
+          ? ''
+          : (reachability?.error || buildProbeDiagnosticsSummary(targetDiagnostics, IP_PROXY_DIAGNOSTICS_SUMMARY_MAX_ITEMS)),
+      });
+    }
     return normalized;
   };
 
@@ -3566,6 +3871,7 @@ async function probeIpProxyExit(options = {}) {
         exitDetecting: true,
         exitIp: '',
         exitRegion: '',
+        exitEndpoint: '',
         exitError: '',
         exitSource: '',
       };
@@ -3594,11 +3900,18 @@ async function probeIpProxyExit(options = {}) {
       normalizedFinalStatus = recovered.status;
     }
   }
-  if (normalizedFinalStatus.reason === 'connectivity_failed') {
-    await setIpProxyLeakGuardEnabled(true);
-  }
+  await syncIpProxyLeakGuardForStatus(normalizedFinalStatus);
   await updateIpProxyRuntimeStatus(normalizedFinalStatus);
   return { proxyRouting: normalizedFinalStatus };
+  })();
+  ipProxyProbeInFlightPromise = probePromise;
+  try {
+    return await probePromise;
+  } finally {
+    if (ipProxyProbeInFlightPromise === probePromise) {
+      ipProxyProbeInFlightPromise = null;
+    }
+  }
 }
 
 async function ensureIpProxySettingsAppliedFromCurrentState(options = {}) {

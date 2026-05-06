@@ -9,16 +9,66 @@
       generatePassword,
       getTabId,
       isTabAlive,
+      resolveSignupMethod,
       sendToContentScript,
       setPasswordState,
       setState,
       SIGNUP_PAGE_INJECT_FILES,
     } = deps;
 
+    function normalizeSignupMethod(value = '') {
+      return String(value || '').trim().toLowerCase() === 'phone'
+        ? 'phone'
+        : 'email';
+    }
+
+    function getResolvedSignupMethodForStep3(state = {}) {
+      if (typeof resolveSignupMethod === 'function') {
+        return normalizeSignupMethod(resolveSignupMethod(state));
+      }
+      const frozenMethod = String(state?.resolvedSignupMethod || '').trim().toLowerCase();
+      if (frozenMethod === 'phone' || frozenMethod === 'email') {
+        return normalizeSignupMethod(frozenMethod);
+      }
+      return normalizeSignupMethod(state?.signupMethod);
+    }
+
+    function resolveStep3AccountIdentity(state = {}) {
+      const resolvedEmail = String(state?.email || '').trim();
+      const rawAccountIdentifierType = String(state?.accountIdentifierType || '').trim().toLowerCase();
+      const signupPhoneNumber = String(
+        state?.signupPhoneNumber
+        || (rawAccountIdentifierType === 'phone' ? state?.accountIdentifier : '')
+        || ''
+      ).trim();
+      const explicitEmailIdentity = rawAccountIdentifierType === 'email' && resolvedEmail;
+      const shouldUsePhoneIdentity = !explicitEmailIdentity && (
+        rawAccountIdentifierType === 'phone'
+        || Boolean(signupPhoneNumber)
+        || getResolvedSignupMethodForStep3(state) === 'phone'
+      );
+      const accountIdentifierType = shouldUsePhoneIdentity
+        ? 'phone'
+        : (resolvedEmail ? 'email' : 'email');
+      const accountIdentifier = accountIdentifierType === 'phone'
+        ? signupPhoneNumber
+        : resolvedEmail;
+
+      return {
+        accountIdentifierType,
+        accountIdentifier,
+        email: resolvedEmail,
+        phoneNumber: signupPhoneNumber,
+      };
+    }
+
     async function executeStep3(state) {
-      const resolvedEmail = state.email;
-      if (!resolvedEmail) {
-        throw new Error('缺少邮箱地址，请先完成步骤 2。');
+      const identity = resolveStep3AccountIdentity(state);
+      if (!identity.accountIdentifier) {
+        if (identity.accountIdentifierType === 'phone') {
+          throw new Error('缺少注册手机号，请先完成步骤 2 或在侧栏填写注册手机号后再执行步骤 3。');
+        }
+        throw new Error('缺少注册账号，请先完成步骤 2。');
       }
 
       const signupTabId = await getTabId('signup-page');
@@ -30,7 +80,13 @@
       await setPasswordState(password);
 
       const accounts = state.accounts || [];
-      accounts.push({ email: resolvedEmail, createdAt: new Date().toISOString() });
+      accounts.push({
+        email: identity.email,
+        phoneNumber: identity.phoneNumber,
+        accountIdentifierType: identity.accountIdentifierType,
+        accountIdentifier: identity.accountIdentifier,
+        createdAt: new Date().toISOString(),
+      });
       await setState({ accounts });
 
       await chrome.tabs.update(signupTabId, { active: true });
@@ -42,14 +98,23 @@
         logMessage: '步骤 3：密码页内容脚本未就绪，正在等待页面恢复...',
       });
 
+      const identityLabel = identity.accountIdentifierType === 'phone'
+        ? `注册手机号为 ${identity.accountIdentifier}`
+        : `邮箱为 ${identity.accountIdentifier}`;
       await addLog(
-        `步骤 3：正在填写密码，邮箱为 ${resolvedEmail}，密码为${state.customPassword ? '自定义' : '自动生成'}（${password.length} 位）`
+        `步骤 3：正在填写密码，${identityLabel}，密码为${state.customPassword ? '自定义' : '自动生成'}（${password.length} 位）`
       );
       await sendToContentScript('signup-page', {
         type: 'EXECUTE_STEP',
         step: 3,
         source: 'background',
-        payload: { email: resolvedEmail, password },
+        payload: {
+          email: identity.email,
+          phoneNumber: identity.phoneNumber,
+          accountIdentifierType: identity.accountIdentifierType,
+          accountIdentifier: identity.accountIdentifier,
+          password,
+        },
       });
     }
 

@@ -10,7 +10,12 @@ function createRouter(overrides = {}) {
   const events = {
     logs: [],
     stepStatuses: [],
+    stateUpdates: [],
+    broadcasts: [],
+    balanceRefreshes: [],
     emailStates: [],
+    signupPhoneStates: [],
+    signupPhoneSilentStates: [],
     finalizePayloads: [],
     phoneFinalizations: [],
     notifyCompletions: [],
@@ -21,15 +26,17 @@ function createRouter(overrides = {}) {
   };
 
   const router = api.createMessageRouter({
-    addLog: async (message, level) => {
-      events.logs.push({ message, level });
+    addLog: async (message, level, options = {}) => {
+      events.logs.push({ message, level, step: options.step, stepKey: options.stepKey });
     },
     appendAccountRunRecord: async () => null,
     batchUpdateLuckmailPurchases: async () => {},
     buildLocalhostCleanupPrefix: () => '',
     buildLuckmailSessionSettingsPayload: () => ({}),
     buildPersistentSettingsPayload: () => ({}),
-    broadcastDataUpdate: () => {},
+    broadcastDataUpdate: (updates) => {
+      events.broadcasts.push(updates);
+    },
     cancelScheduledAutoRun: async () => {},
     checkIcloudSession: async () => {},
     clearAutoRunTimerAlarm: async () => {},
@@ -109,13 +116,21 @@ function createRouter(overrides = {}) {
       events.emailStates.push(email);
     },
     setEmailStateSilently: async () => {},
+    setSignupPhoneState: async (phoneNumber) => {
+      events.signupPhoneStates.push(phoneNumber);
+    },
+    setSignupPhoneStateSilently: async (phoneNumber) => {
+      events.signupPhoneSilentStates.push(phoneNumber);
+    },
     setIcloudAliasPreservedState: async () => {},
     setIcloudAliasUsedState: async () => {},
     setLuckmailPurchaseDisabledState: async () => {},
     setLuckmailPurchasePreservedState: async () => {},
     setLuckmailPurchaseUsedState: async () => {},
     setPersistentSettings: async () => {},
-    setState: async () => {},
+    setState: async (updates) => {
+      events.stateUpdates.push(updates);
+    },
     setStepStatus: async (step, status) => {
       events.stepStatuses.push({ step, status });
     },
@@ -126,6 +141,10 @@ function createRouter(overrides = {}) {
     testHotmailAccountMailAccess: async () => {},
     upsertHotmailAccount: async () => {},
     verifyHotmailAccount: async () => {},
+    refreshGpcCardBalance: overrides.refreshGpcCardBalance || (async (state, options) => {
+      events.balanceRefreshes.push({ state, options });
+      return { balance: '余额 3' };
+    }),
   });
 
   return { router, events };
@@ -143,7 +162,51 @@ test('message router skips step 3 when step 2 lands on verification page', async
 
   assert.deepStrictEqual(events.emailStates, ['user@example.com']);
   assert.deepStrictEqual(events.stepStatuses, [{ step: 3, status: 'skipped' }]);
-  assert.equal(events.logs[0]?.message, '步骤 2：提交邮箱后页面直接进入邮箱验证码页，已自动跳过步骤 3。');
+  assert.equal(events.logs[0]?.message, '步骤 2：提交邮箱后页面直接进入验证码页，已自动跳过步骤 3。');
+});
+
+test('message router syncs signup phone runtime state from step 2 payload immediately', async () => {
+  const { router, events } = createRouter({
+    state: { stepStatuses: { 3: 'pending' } },
+  });
+
+  await router.handleStepData(2, {
+    accountIdentifierType: 'phone',
+    accountIdentifier: '66959916439',
+    signupPhoneNumber: '66959916439',
+  });
+
+  assert.deepStrictEqual(events.emailStates, []);
+  assert.deepStrictEqual(events.signupPhoneSilentStates, ['66959916439']);
+  assert.deepStrictEqual(events.signupPhoneStates, []);
+});
+
+test('message router clears stale signup phone runtime when step 2 resolves email identity', async () => {
+  const { router, events } = createRouter({
+    state: {
+      stepStatuses: { 3: 'pending' },
+      accountIdentifierType: 'phone',
+      accountIdentifier: '+66959916439',
+      signupPhoneNumber: '+66959916439',
+      signupPhoneActivation: { activationId: 'old', phoneNumber: '+66959916439' },
+    },
+  });
+
+  await router.handleStepData(2, {
+    email: 'user@example.com',
+    accountIdentifierType: 'email',
+    accountIdentifier: 'user@example.com',
+  });
+
+  assert.deepStrictEqual(events.emailStates, ['user@example.com']);
+  assert.deepStrictEqual(events.signupPhoneSilentStates, [null]);
+  assert.ok(events.stateUpdates.some((updates) => (
+    updates.accountIdentifierType === 'email'
+    && updates.accountIdentifier === 'user@example.com'
+    && updates.signupPhoneNumber === ''
+    && updates.signupPhoneActivation === null
+    && updates.signupPhoneCompletedActivation === null
+  )));
 });
 
 test('message router does not overwrite a completed step 3 when step 2 is replayed', async () => {
@@ -264,7 +327,23 @@ test('message router finalizes step 3 before marking it completed', async () => 
       },
     },
   ]);
-  assert.deepStrictEqual(response, { ok: true });
+assert.deepStrictEqual(response, { ok: true });
+});
+
+test('message router saves runtime signup phone from sidepanel message', async () => {
+  const { router, events } = createRouter();
+
+  const response = await router.handleMessage({
+    type: 'SAVE_SIGNUP_PHONE',
+    source: 'sidepanel',
+    payload: {
+      phoneNumber: '66959916439',
+    },
+  }, {});
+
+  assert.deepStrictEqual(events.signupPhoneStates, ['66959916439']);
+  assert.deepStrictEqual(events.signupPhoneSilentStates, []);
+  assert.deepStrictEqual(response, { ok: true, phoneNumber: '66959916439' });
 });
 
 test('message router finalizes pending phone activation on platform verify success', async () => {
@@ -352,7 +431,7 @@ test('message router marks step 3 failed when post-submit finalize fails', async
       error: '步骤 3 提交后仍停留在密码页。',
     },
   ]);
-  assert.equal(events.logs.some(({ message }) => /步骤 3 失败：步骤 3 提交后仍停留在密码页。/.test(message)), true);
+  assert.equal(events.logs.some(({ message, step }) => /失败：步骤 3 提交后仍停留在密码页。/.test(message) && step === 3), true);
   assert.deepStrictEqual(response, { ok: true, error: '步骤 3 提交后仍停留在密码页。' });
 });
 
@@ -397,4 +476,56 @@ test('message router blocks manual step 4 execution when signup page tab is miss
 
   assert.deepStrictEqual(events.invalidations, []);
   assert.deepStrictEqual(events.executedSteps, []);
+});
+
+test('message router resolves GPC OTP manual confirmation without completing step early', async () => {
+  const state = {
+    plusManualConfirmationPending: true,
+    plusManualConfirmationRequestId: 'otp-request-1',
+    plusManualConfirmationStep: 7,
+    plusManualConfirmationMethod: 'gopay-otp',
+  };
+  const { router, events } = createRouter({ state });
+
+  const response = await router.handleMessage({
+    type: 'RESOLVE_PLUS_MANUAL_CONFIRMATION',
+    source: 'sidepanel',
+    payload: {
+      step: 7,
+      requestId: 'otp-request-1',
+      confirmed: true,
+      otp: ' 12-34 56 ',
+    },
+  }, {});
+
+  assert.deepStrictEqual(response, { ok: true });
+  assert.equal(events.notifyCompletions.length, 0);
+  assert.equal(events.stepStatuses.length, 0);
+  assert.equal(events.stateUpdates[0].gopayHelperResolvedOtp, '123456');
+  assert.equal(events.stateUpdates[0].plusManualConfirmationPending, false);
+  assert.deepStrictEqual(events.broadcasts[0], events.stateUpdates[0]);
+});
+
+test('message router refreshes GPC balance through explicit sidepanel message', async () => {
+  const state = {
+    plusPaymentMethod: 'gpc-helper',
+    gopayHelperApiUrl: 'http://localhost:18473/',
+    gopayHelperCardKey: 'state_card',
+  };
+  const { router, events } = createRouter({ state });
+
+  const response = await router.handleMessage({
+    type: 'REFRESH_GPC_CARD_BALANCE',
+    source: 'sidepanel',
+    payload: {
+      gopayHelperCardKey: 'payload_card',
+      reason: 'manual',
+    },
+  }, {});
+
+  assert.deepStrictEqual(response, { ok: true, balance: '余额 3' });
+  assert.equal(events.balanceRefreshes.length, 1);
+  assert.equal(events.balanceRefreshes[0].state.gopayHelperApiUrl, 'http://localhost:18473/');
+  assert.equal(events.balanceRefreshes[0].state.gopayHelperCardKey, 'payload_card');
+  assert.deepStrictEqual(events.balanceRefreshes[0].options, { reason: 'manual' });
 });

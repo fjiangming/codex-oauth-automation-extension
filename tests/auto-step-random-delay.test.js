@@ -140,7 +140,7 @@ assert.strictEqual(
 assert.strictEqual(
   api.getAutoRunPreExecutionDelayMs(6, {
     definitions: {
-      6: { key: 'clear-login-cookies' },
+      6: { key: 'wait-registration-success' },
     },
   }),
   0,

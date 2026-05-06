@@ -11,7 +11,7 @@ test('background imports step 1~10 modules', () => {
     'background/steps/fill-password.js',
     'background/steps/fetch-signup-code.js',
     'background/steps/fill-profile.js',
-    'background/steps/clear-login-cookies.js',
+    'background/steps/wait-registration-success.js',
     'background/steps/oauth-login.js',
     'background/steps/fetch-login-code.js',
     'background/steps/confirm-oauth.js',

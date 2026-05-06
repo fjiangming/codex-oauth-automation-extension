@@ -143,3 +143,81 @@ return {
     domains: ['mail.example.com'],
   });
 });
+
+test('oauth flow timeout setting is persisted and normalized as boolean', () => {
+  const api = new Function(`
+const DEFAULT_VERIFICATION_RESEND_COUNT = 4;
+const PERSISTED_SETTING_DEFAULTS = {
+  panelMode: 'cpa',
+  oauthFlowTimeoutEnabled: true,
+  autoStepDelaySeconds: null,
+  verificationResendCount: DEFAULT_VERIFICATION_RESEND_COUNT,
+  mailProvider: '163',
+  mail2925Mode: 'provide',
+  emailGenerator: 'duck',
+  autoDeleteUsedIcloudAlias: false,
+  accountRunHistoryTextEnabled: false,
+  cloudflareTempEmailUseRandomSubdomain: false,
+  cloudflareTempEmailDomain: '',
+  cloudflareTempEmailDomains: [],
+};
+const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
+function normalizePanelMode(value) { return value === 'sub2api' ? 'sub2api' : 'cpa'; }
+function normalizeLocalCpaStep9Mode(value) { return value === 'bypass' ? 'bypass' : 'submit'; }
+function normalizeAutoRunFallbackThreadIntervalMinutes(value) { return Number(value) || 0; }
+function normalizeAutoRunDelayMinutes(value) { return Number(value) || 30; }
+function normalizeAutoStepDelaySeconds(value, fallback = null) { return value == null || value === '' ? fallback : Number(value); }
+function normalizeVerificationResendCount(value, fallback) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
+function normalizeMailProvider(value) { return String(value || '').trim().toLowerCase() || '163'; }
+function normalizeMail2925Mode(value) { return String(value || '').trim().toLowerCase() === 'receive' ? 'receive' : 'provide'; }
+function normalizeEmailGenerator(value) { return String(value || '').trim().toLowerCase() || 'duck'; }
+function normalizeIcloudHost(value) { return ''; }
+function normalizeIcloudTargetMailboxType(value) { return String(value || '').trim() || 'icloud-inbox'; }
+function normalizeIcloudForwardMailProvider(value) { return String(value || '').trim() || 'qq'; }
+function normalizeIcloudFetchMode(value) { return String(value || '').trim() === 'always_new' ? 'always_new' : 'reuse_existing'; }
+function normalizeAccountRunHistoryHelperBaseUrl(value) { return String(value || '').trim(); }
+function normalizeHotmailServiceMode(value) { return String(value || '').trim().toLowerCase() === 'remote' ? 'remote' : 'local'; }
+function normalizeHotmailRemoteBaseUrl(value) { return String(value || '').trim(); }
+function normalizeHotmailLocalBaseUrl(value) { return String(value || '').trim(); }
+function normalizeLuckmailBaseUrl(value) { return String(value || '').trim(); }
+function normalizeLuckmailEmailType(value) { return String(value || '').trim(); }
+function normalizeCloudflareDomain(value) { return String(value || '').trim().toLowerCase(); }
+function normalizeCloudflareDomains(value) { return Array.isArray(value) ? value.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : []; }
+function normalizeCustomEmailPool(value) { return Array.isArray(value) ? value : []; }
+function normalizeCloudflareTempEmailBaseUrl(value) { return String(value || '').trim(); }
+function normalizeCloudflareTempEmailAddress(value = '') { return String(value || '').trim().toLowerCase(); }
+function normalizeCloudflareTempEmailReceiveMailbox(value = '') { return String(value || '').trim().toLowerCase(); }
+function normalizeCloudflareTempEmailDomain(value) { return String(value || '').trim().toLowerCase(); }
+function normalizeCloudflareTempEmailDomains(value) { return Array.isArray(value) ? value.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : []; }
+function normalizeHotmailAccounts(value) { return Array.isArray(value) ? value : []; }
+function normalizeMail2925Accounts(value) { return Array.isArray(value) ? value : []; }
+function normalizePayPalAccounts(value) { return Array.isArray(value) ? value : []; }
+function normalizeHeroSmsAcquirePriority(value) { return String(value || '').trim() === 'price' ? 'price' : 'country'; }
+function normalizeHeroSmsMaxPrice(value) { return String(value || '').trim(); }
+function normalizeHeroSmsCountryFallback(value) { return Array.isArray(value) ? value : []; }
+function normalizePhoneVerificationReplacementLimit(value) { return Number(value) || 3; }
+function normalizePhoneCodeWaitSeconds(value) { return Number(value) || 60; }
+function normalizePhoneCodeTimeoutWindows(value) { return Number(value) || 2; }
+function normalizePhoneCodePollIntervalSeconds(value) { return Number(value) || 5; }
+function normalizePhoneCodePollMaxRounds(value) { return Number(value) || 4; }
+function resolveLegacyAutoStepDelaySeconds() { return undefined; }
+${extractFunction('normalizePersistentSettingValue')}
+${extractFunction('buildPersistentSettingsPayload')}
+return {
+  buildPersistentSettingsPayload,
+  normalizePersistentSettingValue,
+};
+  `)();
+
+  assert.equal(api.normalizePersistentSettingValue('oauthFlowTimeoutEnabled', 0), false);
+  assert.equal(api.normalizePersistentSettingValue('oauthFlowTimeoutEnabled', 1), true);
+
+  assert.deepEqual(api.buildPersistentSettingsPayload({
+    oauthFlowTimeoutEnabled: false,
+  }), {
+    oauthFlowTimeoutEnabled: false,
+  });
+
+  const defaults = api.buildPersistentSettingsPayload({}, { fillDefaults: true });
+  assert.equal(defaults.oauthFlowTimeoutEnabled, true);
+});

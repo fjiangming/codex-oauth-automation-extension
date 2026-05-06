@@ -136,6 +136,9 @@ ${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
 ${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
 ${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
 ${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
 ${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
 
 function isVisibleElement(el) {
@@ -196,6 +199,8 @@ async function sleep(ms) {
 ${extractFunction('getSignupEmailInput')}
 ${extractFunction('getSignupPhoneInput')}
 ${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
 ${extractFunction('getSignupEmailContinueButton')}
 ${extractFunction('inspectSignupEntryState')}
 ${extractFunction('waitForSignupEntryState')}
@@ -309,6 +314,9 @@ ${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
 ${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
 ${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
 ${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
 ${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
 
 function isVisibleElement(el) {
@@ -369,6 +377,8 @@ async function sleep(ms) {
 ${extractFunction('getSignupEmailInput')}
 ${extractFunction('getSignupPhoneInput')}
 ${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
 ${extractFunction('getSignupEmailContinueButton')}
 ${extractFunction('inspectSignupEntryState')}
 ${extractFunction('waitForSignupEntryState')}
@@ -428,4 +438,1326 @@ return {
 `)();
 
   assert.equal(api.run()?.kind, 'localized-email');
+});
+
+test('ensureSignupPhoneEntryReady opens free signup before switching to the phone entry', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+let phase = 'entry';
+let now = 0;
+
+const signupButton = {
+  textContent: '免费注册',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 120, height: 36 };
+  },
+};
+
+const switchButton = {
+  textContent: 'Continue with phone number',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const emailInput = {
+  kind: 'email',
+  getAttribute(name) {
+    if (name === 'type') return 'email';
+    return '';
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+};
+
+const document = {
+  querySelector(selector) {
+    if (selector === SIGNUP_EMAIL_INPUT_SELECTOR) {
+      return phase === 'email' ? emailInput : null;
+    }
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) {
+      return phase === 'phone' ? phoneInput : null;
+    }
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') {
+      return phase === 'email' ? [switchButton] : [];
+    }
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return phase === 'entry' ? [signupButton] : [];
+    }
+    if (selector === 'input') {
+      if (phase === 'email') return [emailInput];
+      if (phase === 'phone') return [phoneInput];
+      return [];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function getPageTextSnapshot() {
+  return phase === 'entry' ? '登录 免费注册' : '';
+}
+
+function throwIfStopped() {}
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+  if (target === signupButton) {
+    phase = 'email';
+  } else if (target === switchButton) {
+    phase = 'phone';
+  }
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('findSignupEntryTrigger')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('waitForSignupPhoneEntryState')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('ensureSignupPhoneEntryReady')}
+
+return {
+  async run() {
+    return ensureSignupPhoneEntryReady();
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.deepEqual(result, {
+    ready: true,
+    state: 'phone_entry',
+    url: 'https://chatgpt.com/',
+  });
+  assert.deepEqual(api.getClicks(), ['免费注册', 'Continue with phone number']);
+});
+
+test('submitSignupPhoneNumberAndContinue auto-switches signup country before filling the local phone number', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+const filled = [];
+const selectEvents = [];
+let now = 0;
+
+const continueButton = {
+  textContent: 'Continue',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'submit';
+    if (name === 'aria-disabled') return 'false';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const countryOptions = [
+  { value: 'AU', textContent: 'Australia (+61)', buttonText: '澳大利亚 (+61)' },
+  { value: 'GB', textContent: 'United Kingdom (+44)', buttonText: '英国 (+44)' },
+];
+
+const countrySelect = {
+  options: countryOptions,
+  selectedIndex: 0,
+  dispatchEvent(event) {
+    selectEvents.push(event?.type || '');
+    return true;
+  },
+};
+
+Object.defineProperty(countrySelect, 'value', {
+  get() {
+    return countryOptions[countrySelect.selectedIndex]?.value || '';
+  },
+  set(nextValue) {
+    const nextIndex = countryOptions.findIndex((option) => option.value === String(nextValue || ''));
+    if (nextIndex >= 0) {
+      countrySelect.selectedIndex = nextIndex;
+    }
+  },
+});
+
+const hiddenPhoneInput = {
+  kind: 'hidden-phone',
+  value: '',
+  getAttribute() {
+    return '';
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  value: '',
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+  closest(selector) {
+    if (selector === 'form') {
+      return form;
+    }
+    return form;
+  },
+};
+
+const selectValueNode = {
+  get textContent() {
+    return countryOptions[countrySelect.selectedIndex]?.buttonText || '';
+  },
+};
+
+const countryButton = {
+  querySelector(selector) {
+    return selector === '.react-aria-SelectValue' ? selectValueNode : null;
+  },
+  get textContent() {
+    return selectValueNode.textContent;
+  },
+  getBoundingClientRect() {
+    return { width: 240, height: 48 };
+  },
+};
+
+const form = {
+  textContent: '英国 (+44)',
+  querySelector(selector) {
+    if (selector === 'select') return countrySelect;
+    if (selector === 'input[name="phoneNumber"]') return hiddenPhoneInput;
+    if (selector === 'button[aria-haspopup="listbox"]') return countryButton;
+    return null;
+  },
+};
+
+const document = {
+  documentElement: {
+    lang: 'zh-CN',
+    getAttribute(name) {
+      return name === 'lang' ? 'zh-CN' : '';
+    },
+  },
+  querySelector(selector) {
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) {
+      return phoneInput;
+    }
+    if (selector === 'button[type="submit"], input[type="submit"]') {
+      return continueButton;
+    }
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]') {
+      return [continueButton];
+    }
+    if (selector === 'input') {
+      return [phoneInput];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const window = {
+  setTimeout(fn) {
+    fn();
+  },
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+class Event {
+  constructor(type) {
+    this.type = type;
+  }
+}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function findSignupEntryTrigger() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function getPageTextSnapshot() {
+  return countryButton.textContent;
+}
+
+function throwIfStopped() {}
+function isStopError() { return false; }
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+}
+
+function fillInput(target, value) {
+  target.value = value;
+  filled.push({ target: target.kind, value });
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('getSignupEntryStateSummary')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('extractDialCodeFromText')}
+${extractFunction('dispatchSignupPhoneFieldEvents')}
+${extractFunction('normalizeSignupCountryLabel')}
+${extractFunction('getSignupCountryLabelAliases')}
+${extractFunction('getSignupPhoneOptionLabel')}
+${extractFunction('normalizeSignupCountryOptionValue')}
+${extractFunction('getSignupRegionDisplayName')}
+${extractFunction('getSignupPhoneCountryMatchLabels')}
+${extractFunction('isSameSignupCountryOption')}
+${extractFunction('getSignupPhoneForm')}
+${extractFunction('getSignupPhoneControlRoots')}
+${extractFunction('querySignupPhoneCountryElements')}
+${extractFunction('isSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneSelectedCountryOption')}
+${extractFunction('getSignupPhoneCountryButtonText')}
+${extractFunction('getSignupPhoneCountryButton')}
+${extractFunction('getSignupPhoneDisplayedDialCode')}
+${extractFunction('getSignupPhoneHiddenNumberInput')}
+${extractFunction('resolveSignupPhoneDialCodeFromNumber')}
+${extractFunction('resolveSignupPhoneTargetDialCode')}
+${extractFunction('getSignupPhoneCountryTargetLabels')}
+${extractFunction('doesSignupPhoneCountryTextMatchTarget')}
+${extractFunction('isSignupPhoneCountrySelectionSynced')}
+${extractFunction('findSignupPhoneCountryOptionByLabel')}
+${extractFunction('findSignupPhoneCountryOptionByPhoneNumber')}
+${extractFunction('trySelectSignupPhoneCountryOption')}
+${extractFunction('getVisibleSignupPhoneCountryListboxOptions')}
+${extractFunction('findSignupPhoneCountryListboxOption')}
+${extractFunction('trySelectSignupPhoneCountryListboxOption')}
+${extractFunction('ensureSignupPhoneCountrySelected')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('toE164PhoneNumber')}
+${extractFunction('resolveSignupPhoneDialCode')}
+${extractFunction('waitForSignupPhoneEntryState')}
+${extractFunction('submitSignupPhoneNumberAndContinue')}
+
+return {
+  async run() {
+    return submitSignupPhoneNumberAndContinue({
+      phoneNumber: '+447859232013',
+      countryLabel: 'United Kingdom',
+    });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getFilled() {
+    return filled.slice();
+  },
+  getSelectValue() {
+    return countrySelect.value;
+  },
+  getSelectEvents() {
+    return selectEvents.slice();
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.phoneInputValue, '7859232013');
+  assert.equal(api.getSelectValue(), 'GB');
+  assert.deepEqual(api.getSelectEvents(), ['input', 'change']);
+  assert.deepEqual(api.getClicks(), ['Continue']);
+  assert.deepEqual(api.getFilled(), [
+    { target: 'phone', value: '7859232013' },
+    { target: 'hidden-phone', value: '+447859232013' },
+  ]);
+});
+
+test('submitSignupPhoneNumberAndContinue clicks the visible country listbox when the hidden select does not update the button', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+const filled = [];
+const selectEvents = [];
+let now = 0;
+let listboxOpen = false;
+let visibleCountryValue = 'AU';
+
+const continueButton = {
+  textContent: 'Continue',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'submit';
+    if (name === 'aria-disabled') return 'false';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const countryOptions = [
+  { value: 'AU', textContent: 'Australia (+61)', buttonText: '澳大利亚 (+61)' },
+  { value: 'GB', textContent: 'United Kingdom (+44)', buttonText: '英国 (+44)' },
+];
+
+const countrySelect = {
+  options: countryOptions,
+  selectedIndex: 0,
+  dispatchEvent(event) {
+    selectEvents.push(event?.type || '');
+    return true;
+  },
+};
+
+Object.defineProperty(countrySelect, 'value', {
+  get() {
+    return countryOptions[countrySelect.selectedIndex]?.value || '';
+  },
+  set(nextValue) {
+    const nextIndex = countryOptions.findIndex((option) => option.value === String(nextValue || ''));
+    if (nextIndex >= 0) {
+      countrySelect.selectedIndex = nextIndex;
+    }
+  },
+});
+
+const hiddenPhoneInput = {
+  kind: 'hidden-phone',
+  value: '',
+  getAttribute() {
+    return '';
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  value: '',
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+  closest(selector) {
+    if (selector === 'form') {
+      return form;
+    }
+    return form;
+  },
+};
+
+const selectValueNode = {
+  get textContent() {
+    return countryOptions.find((option) => option.value === visibleCountryValue)?.buttonText || '';
+  },
+};
+
+const countryButton = {
+  querySelector(selector) {
+    return selector === '.react-aria-SelectValue' ? selectValueNode : null;
+  },
+  get textContent() {
+    return selectValueNode.textContent;
+  },
+};
+
+const gbOption = {
+  textContent: '英国 (+44)',
+  value: '',
+  getAttribute() {
+    return '';
+  },
+};
+
+const form = {
+  querySelector(selector) {
+    if (selector === 'select') return countrySelect;
+    if (selector === 'input[name="phoneNumber"]') return hiddenPhoneInput;
+    if (selector === 'button[aria-haspopup="listbox"]') return countryButton;
+    return null;
+  },
+};
+
+const document = {
+  documentElement: {
+    lang: 'zh-CN',
+    getAttribute(name) {
+      return name === 'lang' ? 'zh-CN' : '';
+    },
+  },
+  querySelector(selector) {
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) {
+      return phoneInput;
+    }
+    if (selector === 'button[type="submit"], input[type="submit"]') {
+      return continueButton;
+    }
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]') {
+      return [continueButton];
+    }
+    if (selector === 'input') {
+      return [phoneInput];
+    }
+    if (selector.includes('[role="option"]')) {
+      return listboxOpen ? [gbOption] : [];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const window = {
+  setTimeout(fn) {
+    fn();
+  },
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+class Event {
+  constructor(type) {
+    this.type = type;
+  }
+}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function findSignupEntryTrigger() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function getPageTextSnapshot() {
+  return countryButton.textContent;
+}
+
+function throwIfStopped() {}
+function isStopError() { return false; }
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+  if (target === countryButton) {
+    listboxOpen = true;
+  }
+  if (target === gbOption) {
+    visibleCountryValue = 'GB';
+    countrySelect.value = 'GB';
+    listboxOpen = false;
+  }
+}
+
+function fillInput(target, value) {
+  target.value = value;
+  filled.push({ target: target.kind, value });
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('getSignupEntryStateSummary')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('extractDialCodeFromText')}
+${extractFunction('dispatchSignupPhoneFieldEvents')}
+${extractFunction('normalizeSignupCountryLabel')}
+${extractFunction('getSignupCountryLabelAliases')}
+${extractFunction('getSignupPhoneOptionLabel')}
+${extractFunction('normalizeSignupCountryOptionValue')}
+${extractFunction('getSignupRegionDisplayName')}
+${extractFunction('getSignupPhoneCountryMatchLabels')}
+${extractFunction('isSameSignupCountryOption')}
+${extractFunction('getSignupPhoneForm')}
+${extractFunction('getSignupPhoneControlRoots')}
+${extractFunction('querySignupPhoneCountryElements')}
+${extractFunction('isSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneSelectedCountryOption')}
+${extractFunction('getSignupPhoneCountryButtonText')}
+${extractFunction('getSignupPhoneCountryButton')}
+${extractFunction('getSignupPhoneDisplayedDialCode')}
+${extractFunction('getSignupPhoneHiddenNumberInput')}
+${extractFunction('resolveSignupPhoneDialCodeFromNumber')}
+${extractFunction('resolveSignupPhoneTargetDialCode')}
+${extractFunction('getSignupPhoneCountryTargetLabels')}
+${extractFunction('doesSignupPhoneCountryTextMatchTarget')}
+${extractFunction('isSignupPhoneCountrySelectionSynced')}
+${extractFunction('findSignupPhoneCountryOptionByLabel')}
+${extractFunction('findSignupPhoneCountryOptionByPhoneNumber')}
+${extractFunction('trySelectSignupPhoneCountryOption')}
+${extractFunction('getVisibleSignupPhoneCountryListboxOptions')}
+${extractFunction('findSignupPhoneCountryListboxOption')}
+${extractFunction('trySelectSignupPhoneCountryListboxOption')}
+${extractFunction('ensureSignupPhoneCountrySelected')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('toE164PhoneNumber')}
+${extractFunction('resolveSignupPhoneDialCode')}
+${extractFunction('waitForSignupPhoneEntryState')}
+${extractFunction('submitSignupPhoneNumberAndContinue')}
+
+return {
+  async run() {
+    return submitSignupPhoneNumberAndContinue({
+      phoneNumber: '+447859232013',
+      countryLabel: 'United Kingdom',
+    });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getFilled() {
+    return filled.slice();
+  },
+  getSelectValue() {
+    return countrySelect.value;
+  },
+  getVisibleCountryText() {
+    return countryButton.textContent;
+  },
+  getSelectEvents() {
+    return selectEvents.slice();
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.phoneInputValue, '7859232013');
+  assert.equal(api.getSelectValue(), 'GB');
+  assert.equal(api.getVisibleCountryText(), '英国 (+44)');
+  assert.deepEqual(api.getSelectEvents(), ['input', 'change']);
+  assert.deepEqual(api.getClicks(), ['澳大利亚 (+61)', '英国 (+44)', 'Continue']);
+  assert.deepEqual(api.getFilled(), [
+    { target: 'phone', value: '7859232013' },
+    { target: 'hidden-phone', value: '+447859232013' },
+  ]);
+});
+
+test('submitSignupPhoneNumberAndContinue can select country by phone dial code without country label or hidden select', async () => {
+  const api = new Function(`
+const clicks = [];
+const filled = [];
+let now = 0;
+let listboxOpen = false;
+let visibleCountryText = '印度尼西亚 +(62)';
+
+const continueButton = {
+  textContent: 'Continue',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'submit';
+    if (name === 'aria-disabled') return 'false';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  value: '',
+  parentElement: null,
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+  closest() {
+    return null;
+  },
+};
+
+const countryButton = {
+  textContent: '',
+  querySelector(selector) {
+    return selector === '.react-aria-SelectValue' ? { textContent: visibleCountryText } : null;
+  },
+  getAttribute(name) {
+    if (name === 'aria-haspopup') return 'listbox';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 240, height: 48 };
+  },
+};
+
+const gbOption = {
+  textContent: '英国 +(44)',
+  getAttribute() {
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 36 };
+  },
+};
+
+const idOption = {
+  textContent: '印度尼西亚 +(62)',
+  getAttribute() {
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 36 };
+  },
+};
+
+const document = {
+  documentElement: {
+    lang: 'zh-CN',
+    getAttribute(name) {
+      return name === 'lang' ? 'zh-CN' : '';
+    },
+  },
+  querySelector(selector) {
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) return phoneInput;
+    if (selector === 'button[type="submit"], input[type="submit"]') return continueButton;
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') return [];
+    if (selector === 'a, button, [role="button"], [role="link"]') return [];
+    if (selector === 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]') return [continueButton];
+    if (selector === 'input') return [phoneInput];
+    if (selector === 'select') return [];
+    if (selector.includes('aria-haspopup="listbox"') || selector.includes('aria-expanded')) return [countryButton];
+    if (selector.includes('[role="option"]')) return listboxOpen ? [idOption, gbOption] : [];
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const window = {
+  setTimeout(fn) {
+    fn();
+  },
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+class Event {
+  constructor(type) {
+    this.type = type;
+  }
+}
+
+function isVisibleElement(el) {
+  return Boolean(el) && (!el.getBoundingClientRect || el.getBoundingClientRect().width > 0);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() { return null; }
+function isSignupPasswordPage() { return false; }
+function getSignupPasswordSubmitButton() { return null; }
+function findSignupEntryTrigger() { return null; }
+function getSignupPasswordDisplayedEmail() { return ''; }
+function getPageTextSnapshot() { return visibleCountryText; }
+function throwIfStopped() {}
+function isStopError() { return false; }
+function log() {}
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target) || visibleCountryText);
+  if (target === countryButton) {
+    listboxOpen = true;
+  }
+  if (target === gbOption) {
+    visibleCountryText = '英国 +(44)';
+    listboxOpen = false;
+  }
+}
+
+function fillInput(target, value) {
+  target.value = value;
+  filled.push({ target: target.kind, value });
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('getSignupEntryStateSummary')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('extractDialCodeFromText')}
+${extractFunction('dispatchSignupPhoneFieldEvents')}
+${extractFunction('normalizeSignupCountryLabel')}
+${extractFunction('getSignupCountryLabelAliases')}
+${extractFunction('getSignupPhoneOptionLabel')}
+${extractFunction('normalizeSignupCountryOptionValue')}
+${extractFunction('getSignupRegionDisplayName')}
+${extractFunction('getSignupPhoneCountryMatchLabels')}
+${extractFunction('isSameSignupCountryOption')}
+${extractFunction('getSignupPhoneForm')}
+${extractFunction('getSignupPhoneControlRoots')}
+${extractFunction('querySignupPhoneCountryElements')}
+${extractFunction('isSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneSelectedCountryOption')}
+${extractFunction('getSignupPhoneCountryButtonText')}
+${extractFunction('getSignupPhoneCountryButton')}
+${extractFunction('getSignupPhoneDisplayedDialCode')}
+${extractFunction('getSignupPhoneHiddenNumberInput')}
+${extractFunction('resolveSignupPhoneDialCodeFromNumber')}
+${extractFunction('resolveSignupPhoneTargetDialCode')}
+${extractFunction('getSignupPhoneCountryTargetLabels')}
+${extractFunction('doesSignupPhoneCountryTextMatchTarget')}
+${extractFunction('isSignupPhoneCountrySelectionSynced')}
+${extractFunction('findSignupPhoneCountryOptionByLabel')}
+${extractFunction('findSignupPhoneCountryOptionByPhoneNumber')}
+${extractFunction('trySelectSignupPhoneCountryOption')}
+${extractFunction('getVisibleSignupPhoneCountryListboxOptions')}
+${extractFunction('findSignupPhoneCountryListboxOption')}
+${extractFunction('trySelectSignupPhoneCountryListboxOption')}
+${extractFunction('ensureSignupPhoneCountrySelected')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('toE164PhoneNumber')}
+${extractFunction('resolveSignupPhoneDialCode')}
+${extractFunction('waitForSignupPhoneEntryState')}
+${extractFunction('submitSignupPhoneNumberAndContinue')}
+
+return {
+  async run() {
+    return submitSignupPhoneNumberAndContinue({
+      phoneNumber: '447423278610',
+      countryLabel: '',
+    });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getFilled() {
+    return filled.slice();
+  },
+  getVisibleCountryText() {
+    return visibleCountryText;
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.phoneInputValue, '7423278610');
+  assert.equal(api.getVisibleCountryText(), '英国 +(44)');
+  assert.deepEqual(api.getClicks(), ['印度尼西亚 +(62)', '英国 +(44)', 'Continue']);
+  assert.deepEqual(api.getFilled(), [{ target: 'phone', value: '7423278610' }]);
+});
+
+test('submitSignupPhoneNumberAndContinue switches from email mode to phone mode and submits local number', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+const filled = [];
+let phase = 'email';
+let now = 0;
+
+const emailInput = {
+  kind: 'email',
+  value: '',
+  getAttribute(name) {
+    if (name === 'type') return 'email';
+    return '';
+  },
+};
+
+const phoneInput = {
+  kind: 'phone',
+  value: '',
+  textContent: 'Thailand (+66)',
+  getAttribute(name) {
+    if (name === 'type') return 'tel';
+    return '';
+  },
+  closest() {
+    return { textContent: 'Thailand (+66)' };
+  },
+};
+
+const switchButton = {
+  textContent: 'Continue with phone number',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const continueButton = {
+  textContent: 'Continue',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'submit';
+    if (name === 'aria-disabled') return 'false';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 200, height: 48 };
+  },
+};
+
+const document = {
+  querySelector(selector) {
+    if (selector === SIGNUP_EMAIL_INPUT_SELECTOR) {
+      return phase === 'email' ? emailInput : null;
+    }
+    if (selector === SIGNUP_PHONE_INPUT_SELECTOR) {
+      return phase === 'phone' ? phoneInput : null;
+    }
+    if (selector === 'button[type="submit"], input[type="submit"]') {
+      return phase === 'phone' ? continueButton : null;
+    }
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'button, a, [role="button"], [role="link"]') {
+      return phase === 'email' ? [switchButton] : [];
+    }
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [];
+    }
+    if (selector === 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]') {
+      return phase === 'phone' ? [continueButton] : [];
+    }
+    if (selector === 'input') {
+      return phase === 'phone' ? [phoneInput] : [emailInput];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const window = {
+  setTimeout(fn) {
+    fn();
+  },
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function findSignupEntryTrigger() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function getPageTextSnapshot() {
+  return phase === 'phone' ? 'Thailand (+66)' : '';
+}
+
+function throwIfStopped() {}
+function isStopError() { return false; }
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+  if (target === switchButton) {
+    phase = 'phone';
+  }
+}
+
+function fillInput(target, value) {
+  target.value = value;
+  filled.push({ target: target.kind, value });
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('getSignupEntryStateSummary')}
+function getSignupEntryDiagnostics() { return {}; }
+${extractFunction('normalizePhoneDigits')}
+${extractFunction('extractDialCodeFromText')}
+${extractFunction('dispatchSignupPhoneFieldEvents')}
+${extractFunction('normalizeSignupCountryLabel')}
+${extractFunction('getSignupCountryLabelAliases')}
+${extractFunction('getSignupPhoneOptionLabel')}
+${extractFunction('normalizeSignupCountryOptionValue')}
+${extractFunction('getSignupRegionDisplayName')}
+${extractFunction('getSignupPhoneCountryMatchLabels')}
+${extractFunction('isSameSignupCountryOption')}
+${extractFunction('getSignupPhoneForm')}
+${extractFunction('getSignupPhoneControlRoots')}
+${extractFunction('querySignupPhoneCountryElements')}
+${extractFunction('isSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneCountrySelect')}
+${extractFunction('getSignupPhoneSelectedCountryOption')}
+${extractFunction('getSignupPhoneCountryButtonText')}
+${extractFunction('getSignupPhoneCountryButton')}
+${extractFunction('getSignupPhoneDisplayedDialCode')}
+${extractFunction('getSignupPhoneHiddenNumberInput')}
+${extractFunction('resolveSignupPhoneDialCodeFromNumber')}
+${extractFunction('resolveSignupPhoneTargetDialCode')}
+${extractFunction('getSignupPhoneCountryTargetLabels')}
+${extractFunction('doesSignupPhoneCountryTextMatchTarget')}
+${extractFunction('isSignupPhoneCountrySelectionSynced')}
+${extractFunction('findSignupPhoneCountryOptionByLabel')}
+${extractFunction('findSignupPhoneCountryOptionByPhoneNumber')}
+${extractFunction('trySelectSignupPhoneCountryOption')}
+${extractFunction('getVisibleSignupPhoneCountryListboxOptions')}
+${extractFunction('findSignupPhoneCountryListboxOption')}
+${extractFunction('trySelectSignupPhoneCountryListboxOption')}
+${extractFunction('ensureSignupPhoneCountrySelected')}
+${extractFunction('toNationalPhoneNumber')}
+${extractFunction('toE164PhoneNumber')}
+${extractFunction('resolveSignupPhoneDialCode')}
+${extractFunction('waitForSignupPhoneEntryState')}
+${extractFunction('submitSignupPhoneNumberAndContinue')}
+
+return {
+  async run() {
+    return submitSignupPhoneNumberAndContinue({
+      phoneNumber: '66959916439',
+      countryLabel: 'Thailand',
+    });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getFilled() {
+    return filled.slice();
+  },
+};
+`)();
+
+  const result = await api.run();
+
+  assert.equal(result.submitted, true);
+  assert.equal(result.phoneInputValue, '959916439');
+  assert.deepEqual(api.getClicks(), ['Continue with phone number', 'Continue']);
+  assert.deepEqual(api.getFilled(), [{ target: 'phone', value: '959916439' }]);
 });

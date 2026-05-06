@@ -141,6 +141,13 @@ test('sidepanel html contains account records overlay and manager script', () =>
   assert.match(html, /id="btn-toggle-account-records-selection"/);
   assert.match(html, /id="btn-delete-selected-account-records"/);
   assert.match(html, /id="input-sub2api-default-proxy"/);
+  assert.match(html, /src="editable-list-picker\.js"/);
+  assert.match(html, /id="sub2api-group-picker"/);
+  assert.match(html, /id="input-sub2api-group" value="codex"/);
+  assert.match(html, /id="btn-add-sub2api-group"/);
+  assert.match(html, /id="paypal-account-picker"/);
+  assert.match(html, /id="cf-domain-picker"/);
+  assert.match(html, /id="temp-email-domain-picker"/);
   assert.notEqual(managerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
   assert.ok(managerIndex < sidepanelIndex);
@@ -336,7 +343,141 @@ test('account records manager supports filter chips and partial multi-select del
   assert.match(list.innerHTML, /stopped@example\.com/);
   assert.equal(btnDeleteSelectedAccountRecords.disabled, true);
   assert.deepStrictEqual(toasts.at(-1), {
-    message: '已删除 1 条邮箱记录。',
+    message: '已删除 1 条账号记录。',
     tone: 'success',
   });
+});
+
+test('account records manager displays phone-only records with account identifier fallback', () => {
+  const source = fs.readFileSync('sidepanel/account-records-manager.js', 'utf8');
+  const windowObject = {};
+  const api = new Function('window', `${source}; return window.SidepanelAccountRecordsManager;`)(windowObject);
+
+  const list = createNode();
+  const meta = createNode();
+  const manager = api.createAccountRecordsManager({
+    state: {
+      getLatestState: () => ({
+        accountRunHistory: [
+          {
+            recordId: 'phone:+6612345',
+            accountIdentifierType: 'phone',
+            accountIdentifier: '+6612345',
+            phoneNumber: '+6612345',
+            email: '',
+            password: '',
+            finalStatus: 'success',
+            finishedAt: '2026-04-17T04:31:00.000Z',
+            retryCount: 0,
+            failureLabel: '流程完成',
+          },
+        ],
+      }),
+      syncLatestState() {},
+    },
+    dom: {
+      accountRecordsList: list,
+      accountRecordsMeta: meta,
+      accountRecordsOverlay: createNode(),
+      accountRecordsPageLabel: createNode(),
+      accountRecordsStats: createNode(),
+      btnAccountRecordsNext: createNode(),
+      btnAccountRecordsPrev: createNode(),
+      btnClearAccountRecords: createNode(),
+      btnCloseAccountRecords: createNode(),
+      btnDeleteSelectedAccountRecords: createNode(),
+      btnOpenAccountRecords: createNode(),
+      btnToggleAccountRecordsSelection: createNode(),
+    },
+    helpers: {
+      escapeHtml: (value) => String(value || ''),
+    },
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+    constants: {
+      displayTimeZone: 'Asia/Shanghai',
+      pageSize: 10,
+    },
+  });
+
+  manager.render();
+
+  assert.match(meta.textContent, /共 1 条/);
+  assert.match(list.innerHTML, /\+6612345/);
+  assert.doesNotMatch(list.innerHTML, /\(空邮箱\)/);
+});
+
+test('account records manager displays combined email and phone identities in one record', () => {
+  const source = fs.readFileSync('sidepanel/account-records-manager.js', 'utf8');
+  const windowObject = {};
+  const api = new Function('window', `${source}; return window.SidepanelAccountRecordsManager;`)(windowObject);
+
+  const list = createNode();
+  const manager = api.createAccountRecordsManager({
+    state: {
+      getLatestState: () => ({
+        accountRunHistory: [
+          {
+            recordId: 'phone:+447700900123',
+            accountIdentifierType: 'phone',
+            accountIdentifier: '+447700900123',
+            phoneNumber: '+447700900123',
+            email: 'bound@example.com',
+            finalStatus: 'success',
+            finishedAt: '2026-04-17T04:31:00.000Z',
+            retryCount: 0,
+            failureLabel: '流程完成',
+          },
+          {
+            recordId: 'mail@example.com',
+            accountIdentifierType: 'email',
+            accountIdentifier: 'mail@example.com',
+            phoneNumber: '447799342687',
+            email: 'mail@example.com',
+            finalStatus: 'failed',
+            finishedAt: '2026-04-17T04:30:00.000Z',
+            retryCount: 0,
+            failureLabel: '步骤 9 失败',
+          },
+        ],
+      }),
+      syncLatestState() {},
+    },
+    dom: {
+      accountRecordsList: list,
+      accountRecordsMeta: createNode(),
+      accountRecordsOverlay: createNode(),
+      accountRecordsPageLabel: createNode(),
+      accountRecordsStats: createNode(),
+      btnAccountRecordsNext: createNode(),
+      btnAccountRecordsPrev: createNode(),
+      btnClearAccountRecords: createNode(),
+      btnCloseAccountRecords: createNode(),
+      btnDeleteSelectedAccountRecords: createNode(),
+      btnOpenAccountRecords: createNode(),
+      btnToggleAccountRecordsSelection: createNode(),
+    },
+    helpers: {
+      escapeHtml: (value) => String(value || ''),
+    },
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+    constants: {
+      displayTimeZone: 'Asia/Shanghai',
+      pageSize: 10,
+    },
+  });
+
+  manager.render();
+
+  assert.match(list.innerHTML, /\+447700900123/);
+  assert.match(list.innerHTML, /邮箱 bound@example\.com/);
+  assert.match(list.innerHTML, /mail@example\.com/);
+  assert.match(list.innerHTML, /绑定手机号 447799342687/);
+  assert.match(
+    list.innerHTML,
+    /title="\+447700900123 \/ 邮箱 bound@example\.com"/
+  );
 });

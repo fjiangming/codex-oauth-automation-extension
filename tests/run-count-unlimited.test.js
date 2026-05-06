@@ -157,6 +157,84 @@ return {
   assert.equal(api.isDisabled(), true);
 });
 
+test('sidepanel pending auto-run start ignores stale active run count sync', () => {
+  const source = fs.readFileSync('sidepanel/sidepanel.js', 'utf8');
+  const bundle = [
+    extractFunction(source, 'hasOwnStateValue'),
+    extractFunction(source, 'readAutoRunStateValue'),
+    extractFunction(source, 'normalizePendingAutoRunStartRunCount'),
+    extractFunction(source, 'registerPendingAutoRunStartRunCount'),
+    extractFunction(source, 'clearPendingAutoRunStartRunCount'),
+    extractFunction(source, 'getPendingAutoRunStartRunCount'),
+    extractFunction(source, 'getAutoRunSourceTotalRuns'),
+    extractFunction(source, 'syncAutoRunState'),
+    extractFunction(source, 'isAutoRunLockedPhase'),
+    extractFunction(source, 'isAutoRunPausedPhase'),
+    extractFunction(source, 'isAutoRunScheduledPhase'),
+    extractFunction(source, 'isAutoRunSourceSyncPhase'),
+    extractFunction(source, 'shouldSyncRunCountFromAutoRunSource'),
+    extractFunction(source, 'applyAutoRunStatus'),
+  ].join('\n');
+
+  const api = new Function(`
+let currentAutoRun = {
+  autoRunning: false,
+  phase: 'idle',
+  currentRun: 0,
+  totalRuns: 1,
+  attemptRun: 0,
+  scheduledAt: null,
+  countdownAt: null,
+  countdownTitle: '',
+  countdownNote: '',
+};
+let pendingAutoRunStartTotalRuns = 0;
+let pendingAutoRunStartExpiresAt = 0;
+const inputRunCount = { value: '20', disabled: false };
+const btnAutoRun = { disabled: false, innerHTML: '' };
+const btnFetchEmail = { disabled: false };
+const inputEmail = { disabled: false };
+const inputAutoSkipFailures = { disabled: false };
+const autoContinueBar = { style: { display: '' } };
+
+function setSettingsCardLocked() {}
+function getAutoRunLabel() { return ''; }
+function getLockedRunCountFromEmailPool() { return 0; }
+function isCustomMailProvider() { return false; }
+function usesCustomEmailPoolGenerator() { return false; }
+function setDefaultAutoRunButton() {}
+function updateAutoDelayInputState() {}
+function updateFallbackThreadIntervalInputState() {}
+function syncScheduledCountdownTicker() {}
+function updateStopButtonState() {}
+function getStepStatuses() { return {}; }
+function updateConfigMenuControls() {}
+function renderContributionMode() {}
+
+${bundle}
+
+return {
+  applyAutoRunStatus,
+  registerPendingAutoRunStartRunCount,
+  getValue() {
+    return inputRunCount.value;
+  },
+  getPending() {
+    return pendingAutoRunStartTotalRuns;
+  },
+};
+`)();
+
+  api.registerPendingAutoRunStartRunCount(20);
+  api.applyAutoRunStatus({ autoRunning: true, autoRunPhase: 'running', autoRunTotalRuns: 1 });
+  assert.equal(api.getValue(), '20');
+  assert.equal(api.getPending(), 20);
+
+  api.applyAutoRunStatus({ autoRunning: true, autoRunPhase: 'running', autoRunTotalRuns: 20 });
+  assert.equal(api.getValue(), '20');
+  assert.equal(api.getPending(), 0);
+});
+
 test('background normalizeRunCount no longer clamps values to 50', () => {
   const source = fs.readFileSync('background.js', 'utf8');
   const bundle = extractFunction(source, 'normalizeRunCount');

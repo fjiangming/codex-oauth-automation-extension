@@ -51,19 +51,18 @@ function extractFunction(name) {
 function createApi({
   refreshImpl,
   runCount = 3,
-  plusModeEnabled = false,
-  plusRiskEnabled = false,
-  plusRiskConfirmed = true,
-  plusRiskDismissPrompt = false,
-  plusContributionImpl,
+  persistImpl,
 } = {}) {
-  const bundle = extractFunction('startAutoRunFromCurrentSettings');
+  const bundle = [
+    extractFunction('normalizePendingAutoRunStartRunCount'),
+    extractFunction('registerPendingAutoRunStartRunCount'),
+    extractFunction('clearPendingAutoRunStartRunCount'),
+    extractFunction('startAutoRunFromCurrentSettings'),
+  ].join('\n');
 
   return new Function(`
 const events = [];
 const latestState = { contributionMode: false };
-const currentPlusModeEnabled = ${JSON.stringify(Boolean(plusModeEnabled))};
-const inputPlusModeEnabled = { checked: ${JSON.stringify(Boolean(plusModeEnabled))} };
 const inputAutoSkipFailures = { checked: false };
 const inputContributionNickname = { value: 'tester' };
 const inputContributionQq = { value: '123456' };
@@ -72,6 +71,9 @@ const inputAutoDelayEnabled = { checked: false };
 const inputAutoDelayMinutes = { value: '30' };
 const btnAutoRun = { disabled: false, innerHTML: '' };
 const inputRunCount = { disabled: false };
+let runCountValue = ${Math.max(1, Number(runCount) || 1)};
+let pendingAutoRunStartTotalRuns = 0;
+let pendingAutoRunStartExpiresAt = 0;
 const chrome = {
   runtime: {
     async sendMessage(message) {
@@ -87,8 +89,16 @@ const console = {
 };
 async function persistCurrentSettingsForAction() {
   events.push({ type: 'sync-settings' });
+  ${persistImpl ? `return (${persistImpl})(events, {
+    setRunCount(value) {
+      runCountValue = Math.max(1, Number(value) || 1);
+    },
+    getRunCount() {
+      return runCountValue;
+    },
+  });` : ''}
 }
-function getRunCountValue() { return ${Math.max(1, Number(runCount) || 1)}; }
+function getRunCountValue() { return Math.max(1, Number(runCountValue) || 1); }
 function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
 function shouldOfferAutoModeChoice() { return false; }
 async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
@@ -98,23 +108,6 @@ function shouldWarnAutoRunFallbackRisk() { return false; }
 function isAutoRunFallbackRiskPromptDismissed() { return false; }
 async function openAutoRunFallbackRiskConfirmModal() { throw new Error('should not be called'); }
 function setAutoRunFallbackRiskPromptDismissed() {}
-function shouldWarnPlusAutoRunRisk(totalRuns, plusModeEnabled) {
-  return ${JSON.stringify(Boolean(plusRiskEnabled))} && Boolean(plusModeEnabled) && Number(totalRuns) > 3;
-}
-function isAutoRunPlusRiskPromptDismissed() { return false; }
-async function openPlusAutoRunRiskConfirmModal(totalRuns) {
-  events.push({ type: 'plus-risk-modal', totalRuns });
-  return {
-    confirmed: ${JSON.stringify(Boolean(plusRiskConfirmed))},
-    dismissPrompt: ${JSON.stringify(Boolean(plusRiskDismissPrompt))},
-  };
-}
-function setAutoRunPlusRiskPromptDismissed(dismissed) {
-  events.push({ type: 'plus-risk-dismiss', dismissed });
-}
-async function maybeShowPlusContributionPromptBeforeAutoRun(plusModeEnabled) {
-  ${plusContributionImpl ? 'return (' + plusContributionImpl + ')(plusModeEnabled, events);' : 'return true;'}
-}
 function normalizeAutoDelayMinutes(value) { return Number(value) || 30; }
 async function refreshContributionContentHint() {
   events.push({ type: 'refresh' });
@@ -177,11 +170,13 @@ test('startAutoRunFromCurrentSettings does not block auto run when contribution 
   );
 });
 
-test('startAutoRunFromCurrentSettings shows Plus risk warning before starting more than 3 runs', async () => {
+test('startAutoRunFromCurrentSettings freezes run count before async settings sync can repaint it', async () => {
   const api = createApi({
-    runCount: 4,
-    plusModeEnabled: true,
-    plusRiskEnabled: true,
+    runCount: 20,
+    persistImpl: `(events, controls) => {
+      controls.setRunCount(1);
+      events.push({ type: 'stale-status-reset', runCount: controls.getRunCount() });
+    }`,
   });
 
   const result = await api.startAutoRunFromCurrentSettings();
@@ -190,46 +185,9 @@ test('startAutoRunFromCurrentSettings shows Plus risk warning before starting mo
   assert.equal(result, true);
   assert.deepEqual(
     events.map((entry) => entry.type),
-    ['refresh', 'sync-settings', 'plus-risk-modal', 'send']
+    ['refresh', 'sync-settings', 'stale-status-reset', 'send']
   );
-  assert.equal(events[2].totalRuns, 4);
-  assert.equal(events[3].message.payload.totalRuns, 4);
-});
-
-test('startAutoRunFromCurrentSettings aborts when Plus risk warning is declined', async () => {
-  const api = createApi({
-    runCount: 4,
-    plusModeEnabled: true,
-    plusRiskEnabled: true,
-    plusRiskConfirmed: false,
-  });
-
-  const result = await api.startAutoRunFromCurrentSettings();
-
-  assert.equal(result, false);
-  assert.deepEqual(
-    api.getEvents().map((entry) => entry.type),
-    ['refresh', 'sync-settings', 'plus-risk-modal']
-  );
-});
-
-test('startAutoRunFromCurrentSettings aborts when Plus contribution prompt opens contribution page', async () => {
-  const api = createApi({
-    plusModeEnabled: true,
-    plusContributionImpl: `async (plusModeEnabled, events) => {
-      events.push({ type: 'plus-contribution-modal', plusModeEnabled });
-      return false;
-    }`,
-  });
-
-  const result = await api.startAutoRunFromCurrentSettings();
-
-  assert.equal(result, false);
-  assert.deepEqual(
-    api.getEvents().map((entry) => entry.type),
-    ['refresh', 'sync-settings', 'plus-contribution-modal']
-  );
-  assert.equal(api.getEvents()[2].plusModeEnabled, true);
+  assert.equal(events[3].message.payload.totalRuns, 20);
 });
 
 test('persistCurrentSettingsForAction forces a silent save even when settings are not marked dirty', async () => {
@@ -245,9 +203,13 @@ let clearedTimer = null;
 let settingsSaveInFlight = false;
 let settingsDirty = false;
 let settingsSaveRevision = 0;
+let phonePersistCalls = 0;
 const saveCalls = [];
 function clearTimeout(value) {
   clearedTimer = value;
+}
+async function persistSignupPhoneInputForAction() {
+  phonePersistCalls += 1;
 }
 function updateSaveButtonState() {}
 function collectSettingsPayload() {
@@ -271,7 +233,7 @@ ${bundle}
 return {
   persistCurrentSettingsForAction,
   getSnapshot() {
-    return { clearedTimer, saveCalls };
+    return { clearedTimer, phonePersistCalls, saveCalls };
   },
 };
 `)();
@@ -280,5 +242,6 @@ return {
   const snapshot = api.getSnapshot();
 
   assert.equal(snapshot.clearedTimer, 123);
+  assert.equal(snapshot.phonePersistCalls, 1);
   assert.deepStrictEqual(snapshot.saveCalls, [{ luckmailApiKey: 'autofilled-key' }]);
 });

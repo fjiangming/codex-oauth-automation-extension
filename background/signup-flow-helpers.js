@@ -10,6 +10,7 @@
       ensureHotmailAccountForFlow,
       ensureMail2925AccountForFlow,
       ensureLuckmailPurchaseForFlow,
+      fetchGeneratedEmail,
       isGeneratedAliasProvider,
       isReusableGeneratedAliasEmail,
       isHotmailProvider,
@@ -17,11 +18,15 @@
       isLuckmailProvider,
       isSignupEmailVerificationPageUrl,
       isSignupPasswordPageUrl,
+      isSignupPhoneVerificationPageUrl = null,
+      isSignupProfilePageUrl = null,
       reuseOrCreateTab,
       sendToContentScriptResilient,
       setEmailState,
+      setState,
       SIGNUP_ENTRY_URL,
       SIGNUP_PAGE_INJECT_FILES,
+      waitForTabStableComplete = null,
       waitForTabUrlMatch,
     } = deps;
 
@@ -62,46 +67,95 @@
       return { tabId, result: result || {} };
     }
 
-    function resolveSignupPostEmailState(rawUrl) {
+    function parseUrlSafely(rawUrl) {
+      if (!rawUrl) return null;
+      try {
+        return new URL(rawUrl);
+      } catch {
+        return null;
+      }
+    }
+
+    function fallbackSignupPhoneVerificationPageUrl(rawUrl) {
+      const parsed = parseUrlSafely(rawUrl);
+      if (!parsed) return false;
+      return /\/phone-verification(?:[/?#]|$)/i.test(parsed.pathname || '');
+    }
+
+    function fallbackSignupProfilePageUrl(rawUrl) {
+      const parsed = parseUrlSafely(rawUrl);
+      if (!parsed) return false;
+      return /\/create-account\/profile(?:[/?#]|$)/i.test(parsed.pathname || '');
+    }
+
+    function resolveSignupPostIdentityState(rawUrl) {
       if (isSignupPasswordPageUrl(rawUrl)) {
         return 'password_page';
       }
       if (isSignupEmailVerificationPageUrl(rawUrl)) {
         return 'verification_page';
       }
+      const isPhoneVerificationUrl = typeof isSignupPhoneVerificationPageUrl === 'function'
+        ? isSignupPhoneVerificationPageUrl(rawUrl)
+        : fallbackSignupPhoneVerificationPageUrl(rawUrl);
+      if (isPhoneVerificationUrl) {
+        return 'phone_verification_page';
+      }
+      const isProfileUrl = typeof isSignupProfilePageUrl === 'function'
+        ? isSignupProfilePageUrl(rawUrl)
+        : fallbackSignupProfilePageUrl(rawUrl);
+      if (isProfileUrl) {
+        return 'profile_page';
+      }
       return '';
     }
 
-    async function ensureSignupPostEmailPageReadyInTab(tabId, step = 2, options = {}) {
+    async function ensureSignupPostIdentityPageReadyInTab(tabId, step = 2, options = {}) {
       const { skipUrlWait = false } = options;
       let landingUrl = '';
       let landingState = '';
 
       if (!skipUrlWait) {
-        const matchedTab = await waitForTabUrlMatch(tabId, (url) => Boolean(resolveSignupPostEmailState(url)), {
+        const matchedTab = await waitForTabUrlMatch(tabId, (url) => Boolean(resolveSignupPostIdentityState(url)), {
           timeoutMs: 45000,
           retryDelayMs: 300,
         });
         if (!matchedTab) {
-          throw new Error('等待邮箱提交后的页面跳转超时，请检查页面是否仍停留在邮箱输入页。');
+          throw new Error('等待注册身份提交后的页面跳转超时，请检查页面是否仍停留在输入页。');
         }
 
         landingUrl = matchedTab.url || '';
-        landingState = resolveSignupPostEmailState(landingUrl);
+        landingState = resolveSignupPostIdentityState(landingUrl);
       }
 
       if (!landingState) {
         try {
           const currentTab = await chrome.tabs.get(tabId);
           landingUrl = landingUrl || currentTab?.url || '';
-          landingState = resolveSignupPostEmailState(landingUrl);
+          landingState = resolveSignupPostIdentityState(landingUrl);
         } catch {
           landingUrl = landingUrl || '';
         }
       }
 
       if (!landingState) {
-        throw new Error(`邮箱提交后未能识别当前页面，既不是密码页也不是邮箱验证码页。URL: ${landingUrl || 'unknown'}`);
+        throw new Error(`注册身份提交后未能识别当前页面，既不是密码页、验证码页，也不是资料页。URL: ${landingUrl || 'unknown'}`);
+      }
+
+      if (landingState !== 'password_page' && typeof waitForTabStableComplete === 'function') {
+        const stableTab = await waitForTabStableComplete(tabId, {
+          timeoutMs: 45000,
+          retryDelayMs: 300,
+          stableMs: 800,
+          initialDelayMs: 300,
+        });
+        if (stableTab?.url) {
+          const stableState = resolveSignupPostIdentityState(stableTab.url);
+          if (stableState) {
+            landingUrl = stableTab.url;
+            landingState = stableState;
+          }
+        }
       }
 
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
@@ -109,12 +163,12 @@
         injectSource: 'signup-page',
         timeoutMs: 45000,
         retryDelayMs: 900,
-        logMessage: landingState === 'verification_page'
-          ? `步骤 ${step}：邮箱验证码页仍在加载，正在等待页面恢复...`
-          : `步骤 ${step}：密码页仍在加载，正在重试连接内容脚本...`,
+        logMessage: landingState === 'password_page'
+          ? `步骤 ${step}：密码页仍在加载，正在重试连接内容脚本...`
+          : `步骤 ${step}：注册后续页面仍在加载，正在等待页面恢复...`,
       });
 
-      if (landingState === 'verification_page') {
+      if (landingState !== 'password_page') {
         return {
           ready: true,
           state: landingState,
@@ -143,6 +197,10 @@
         state: landingState,
         url: landingUrl,
       };
+    }
+
+    async function ensureSignupPostEmailPageReadyInTab(tabId, step = 2, options = {}) {
+      return ensureSignupPostIdentityPageReadyInTab(tabId, step, options);
     }
 
     async function ensureSignupPasswordPageReadyInTab(tabId, step = 2, options = {}) {
@@ -200,8 +258,52 @@
       return result || {};
     }
 
-    async function resolveSignupEmailForFlow(state) {
+    function getPreservedPhoneIdentityForEmailResolution(state = {}, options = {}) {
+      if (!Boolean(options?.preserveAccountIdentity)) {
+        return null;
+      }
+      const accountIdentifierType = String(state?.accountIdentifierType || '').trim().toLowerCase();
+      const signupPhoneNumber = String(
+        state?.signupPhoneNumber
+        || (accountIdentifierType === 'phone' ? state?.accountIdentifier : '')
+        || state?.signupPhoneCompletedActivation?.phoneNumber
+        || state?.signupPhoneActivation?.phoneNumber
+        || ''
+      ).trim();
+      if (accountIdentifierType !== 'phone' && !signupPhoneNumber) {
+        return null;
+      }
+      return {
+        accountIdentifierType: 'phone',
+        accountIdentifier: signupPhoneNumber || String(state?.accountIdentifier || '').trim(),
+        signupPhoneNumber,
+        signupPhoneActivation: state?.signupPhoneActivation || null,
+        signupPhoneCompletedActivation: state?.signupPhoneCompletedActivation || null,
+        signupPhoneVerificationRequestedAt: state?.signupPhoneVerificationRequestedAt ?? null,
+        signupPhoneVerificationPurpose: state?.signupPhoneVerificationPurpose || '',
+      };
+    }
+
+    async function persistResolvedSignupEmail(resolvedEmail, state = {}, options = {}) {
+      if (resolvedEmail === state.email && !options?.preserveAccountIdentity) {
+        return;
+      }
+      const preservedPhoneIdentity = getPreservedPhoneIdentityForEmailResolution(state, options);
+      if (preservedPhoneIdentity && typeof setState === 'function') {
+        await setState({
+          email: resolvedEmail,
+          ...preservedPhoneIdentity,
+        });
+        return;
+      }
+      if (resolvedEmail !== state.email) {
+        await setEmailState(resolvedEmail);
+      }
+    }
+
+    async function resolveSignupEmailForFlow(state, options = {}) {
       let resolvedEmail = state.email;
+      let generatedEmailAlreadyPersisted = false;
       if (isHotmailProvider(state)) {
         const account = await ensureHotmailAccountForFlow({
           allowAllocate: true,
@@ -225,14 +327,17 @@
         if (!isReusableGeneratedAliasEmail?.(state, resolvedEmail)) {
           resolvedEmail = buildGeneratedAliasEmail(state);
         }
+      } else if (!resolvedEmail && typeof fetchGeneratedEmail === 'function') {
+        resolvedEmail = await fetchGeneratedEmail(state, options);
+        generatedEmailAlreadyPersisted = true;
       }
 
       if (!resolvedEmail) {
         throw new Error('缺少邮箱地址，请先在侧边栏粘贴邮箱。');
       }
 
-      if (resolvedEmail !== state.email) {
-        await setEmailState(resolvedEmail);
+      if (!generatedEmailAlreadyPersisted || options?.preserveAccountIdentity) {
+        await persistResolvedSignupEmail(resolvedEmail, state, options);
       }
 
       return resolvedEmail;
@@ -240,6 +345,7 @@
 
     return {
       ensureSignupEntryPageReady,
+      ensureSignupPostIdentityPageReadyInTab,
       ensureSignupPostEmailPageReadyInTab,
       finalizeSignupPasswordSubmitInTab,
       ensureSignupPasswordPageReadyInTab,

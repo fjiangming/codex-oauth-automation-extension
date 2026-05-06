@@ -92,12 +92,24 @@ function getLoginEmailInput() {
   return ${JSON.stringify(overrides.emailInput || null)};
 }
 
+function getLoginPhoneInput() {
+  return ${JSON.stringify(overrides.phoneInput || null)};
+}
+
 function findOneTimeCodeLoginTrigger() {
   return ${JSON.stringify(overrides.switchTrigger || null)};
 }
 
 function findLoginEntryTrigger() {
   return ${JSON.stringify(overrides.loginEntryTrigger || null)};
+}
+
+function findLoginPhoneEntryTrigger() {
+  return ${JSON.stringify(overrides.phoneEntryTrigger || null)};
+}
+
+function findLoginMoreOptionsTrigger() {
+  return ${JSON.stringify(overrides.moreOptionsTrigger || null)};
 }
 
 function getLoginSubmitButton() {
@@ -110,6 +122,10 @@ function isVerificationPageStillVisible() {
 
 function isAddPhonePageReady() {
   return ${JSON.stringify(Boolean(overrides.addPhonePage))};
+}
+
+function isAddEmailPageReady() {
+  return ${JSON.stringify(Boolean(overrides.addEmailPage))};
 }
 
 function isVisibleElement() {
@@ -239,9 +255,43 @@ return {
   assert.strictEqual(snapshot.state, 'entry_page');
 }
 
+{
+  const api = createApi({
+    phoneInput: { id: 'phone' },
+    submitButton: { id: 'submit' },
+  });
+
+  const snapshot = api.inspectLoginAuthState();
+  assert.strictEqual(snapshot.state, 'phone_entry_page');
+}
+
+{
+  const api = createApi({
+    pathname: '/add-email',
+    href: 'https://auth.openai.com/add-email',
+    emailInput: { id: 'email' },
+    submitButton: { id: 'submit' },
+    addEmailPage: true,
+  });
+
+  const snapshot = api.inspectLoginAuthState();
+  assert.strictEqual(snapshot.state, 'add_email_page');
+  assert.strictEqual(snapshot.addEmailPage, true);
+}
+
 assert.ok(
   extractFunction('inspectLoginAuthState').includes("state: 'oauth_consent_page'"),
   'inspectLoginAuthState 应产出 oauth_consent_page 状态'
+);
+
+assert.ok(
+  extractFunction('inspectLoginAuthState').includes("state: 'phone_entry_page'"),
+  'inspectLoginAuthState 应产出 phone_entry_page 状态'
+);
+
+assert.ok(
+  extractFunction('inspectLoginAuthState').includes("state: 'add_email_page'"),
+  'inspectLoginAuthState 应产出 add_email_page 状态'
 );
 
 console.log('step6 login state tests passed');

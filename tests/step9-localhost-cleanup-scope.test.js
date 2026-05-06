@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 
 const helperSource = fs.readFileSync('background.js', 'utf8');
+const messageRouterSource = fs.readFileSync('background/message-router.js', 'utf8');
 const tabRuntimeSource = fs.readFileSync('background/tab-runtime.js', 'utf8');
 
 function extractFunction(source, name) {
@@ -54,10 +55,9 @@ const helperBundle = [
   extractFunction(helperSource, 'isGeneratedAliasProvider'),
   extractFunction(helperSource, 'shouldUseCustomRegistrationEmail'),
   extractFunction(helperSource, 'isLocalhostOAuthCallbackUrl'),
-  extractFunction(helperSource, 'handleStepData'),
 ].join('\n');
 
-const api = new Function('tabRuntimeSource', `
+const api = new Function('messageRouterSource', 'tabRuntimeSource', `
 const self = {};
 const HOTMAIL_PROVIDER = 'hotmail-api';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
@@ -116,6 +116,7 @@ async function addLog(message) {
 }
 async function finalizePhoneActivationAfterSuccessfulFlow() {}
 async function finalizeIcloudAliasAfterSuccessfulFlow() {}
+async function markCurrentRegistrationAccountUsed() {}
 function matchesSourceUrlFamily() {
   return false;
 }
@@ -149,9 +150,25 @@ const closeLocalhostCallbackTabs = tabRuntime.closeLocalhostCallbackTabs;
 const isLocalhostOAuthCallbackTabMatch = tabRuntime.isLocalhostOAuthCallbackTabMatch;
 const buildLocalhostCleanupPrefix = tabRuntime.buildLocalhostCleanupPrefix;
 const closeTabsByUrlPrefix = tabRuntime.closeTabsByUrlPrefix;
+${messageRouterSource}
+const messageRouter = self.MultiPageBackgroundMessageRouter.createMessageRouter({
+  addLog,
+  buildLocalhostCleanupPrefix,
+  closeLocalhostCallbackTabs,
+  closeTabsByUrlPrefix,
+  finalizeIcloudAliasAfterSuccessfulFlow,
+  finalizePhoneActivationAfterSuccessfulFlow,
+  getCurrentLuckmailPurchase: () => null,
+  getState,
+  getStepDefinitionForState: (step) => ({ id: step, key: step === 10 ? 'platform-verify' : '' }),
+  isHotmailProvider: () => false,
+  isLuckmailProvider,
+  markCurrentRegistrationAccountUsed,
+  patchHotmailAccount: async () => {},
+});
 
 return {
-  handleStepData,
+  handleStepData: messageRouter.handleStepData,
   closeLocalhostCallbackTabs,
   isLocalhostOAuthCallbackTabMatch,
   reset({ tabs, tabRegistry }) {
@@ -170,7 +187,7 @@ return {
     };
   },
 };
-`)(tabRuntimeSource);
+`)(messageRouterSource, tabRuntimeSource);
 
 (async () => {
   const codexCallbackUrl = 'http://127.0.0.1:8317/codex/callback?code=abc&state=xyz';

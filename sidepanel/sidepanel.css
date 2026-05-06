@@ -511,6 +511,13 @@ header {
   gap: 4px;
 }
 
+.update-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .update-card-version {
   font-size: 14px;
   font-weight: 700;
@@ -832,6 +839,74 @@ header {
   gap: 8px;
   border-top: none;
   padding-top: 0;
+}
+
+.ip-proxy-promo-row {
+  min-height: 26px;
+}
+
+.ip-proxy-promo {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--amber) 22%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber-soft) 44%, var(--bg-base));
+  color: color-mix(in srgb, var(--amber) 82%, var(--text-secondary));
+}
+
+.ip-proxy-promo-track {
+  min-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.ip-proxy-promo-item {
+  display: inline-block;
+  padding-right: 32px;
+}
+
+.ip-proxy-promo-copy {
+  display: none;
+}
+
+.ip-proxy-promo.is-overflowing .ip-proxy-promo-track {
+  min-width: auto;
+  animation: ip-proxy-promo-marquee 18s linear infinite;
+  will-change: transform;
+}
+
+.ip-proxy-promo.is-overflowing .ip-proxy-promo-copy {
+  display: inline-block;
+}
+
+.ip-proxy-promo:hover .ip-proxy-promo-track {
+  animation-play-state: paused;
+}
+
+@keyframes ip-proxy-promo-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ip-proxy-promo.is-overflowing .ip-proxy-promo-track {
+    animation: none;
+  }
+
+  .ip-proxy-promo.is-overflowing .ip-proxy-promo-copy {
+    display: none;
+  }
 }
 
 .phone-verification-card {
@@ -1159,6 +1234,59 @@ header {
 
 .data-value-fill {
   flex: 1;
+}
+
+.country-order-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.country-order-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.country-order-chip-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.country-order-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.country-order-remove:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.country-order-separator {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .data-value.has-value { color: var(--text-primary); }
@@ -1519,6 +1647,27 @@ header {
   background: var(--text-muted);
 }
 
+.account-pool-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 4px 8px;
+  background: color-mix(in srgb, var(--bg-base) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.account-pool-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-pool-filter {
+  flex: 0 0 110px;
+}
+
 .hotmail-accounts-list {
   display: flex;
   flex-direction: column;
@@ -1822,6 +1971,102 @@ header {
 .data-select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
 [data-theme="dark"] .data-select { color-scheme: dark; }
 
+.editable-list-picker {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.editable-list-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  text-align: left;
+}
+
+.editable-list-caret {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.editable-list-trigger.is-open .editable-list-caret {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.editable-list-menu {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  box-shadow: var(--shadow-md);
+}
+
+.editable-list-option-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+}
+
+.editable-list-option,
+.editable-list-delete {
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.editable-list-option {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editable-list-option[aria-selected="true"] {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.editable-list-option:hover,
+.editable-list-delete:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.editable-list-delete {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+
+.editable-list-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .data-check {
   display: flex;
   align-items: flex-start;
@@ -2112,6 +2357,19 @@ header {
 .hero-sms-runtime-value {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.hero-sms-runtime-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 33px;
+  min-height: 33px;
+}
+
+.signup-phone-runtime-inline,
+.signup-phone-runtime-input {
+  width: 100%;
 }
 
 .hero-sms-price-preview-stack {
@@ -2780,14 +3038,31 @@ header {
   cursor: pointer;
 }
 
-.account-record-item-email {
+.account-record-item-identity {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-record-item-email,
+.account-record-item-secondary {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.account-record-item-email {
   color: var(--text-primary);
   font-size: 12px;
+  font-weight: 600;
+}
+
+.account-record-item-secondary {
+  color: var(--text-secondary);
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -3009,22 +3284,6 @@ header {
   color: var(--text-secondary);
   margin-bottom: 14px;
   white-space: pre-line;
-}
-
-.plus-contribution-prompt-copy {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.plus-contribution-prompt-image {
-  display: block;
-  width: min(220px, 100%);
-  max-height: 280px;
-  object-fit: contain;
-  margin: 12px auto 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
 }
 
 .modal-message a,

@@ -85,9 +85,271 @@ test('step 8 submits login verification directly without replaying step 7', asyn
     { step8VerificationTargetEmail: 'display.user@example.com' },
   ]);
   assert.deepStrictEqual(calls.ensureReadyOptions, [
-    { visibleStep: 8, authLoginStep: 7, timeoutMs: 5000 },
+    {
+      visibleStep: 8,
+      authLoginStep: 7,
+      allowPhoneVerificationPage: true,
+      allowAddEmailPage: true,
+      timeoutMs: 5000,
+    },
   ]);
   assert.equal(calls.resolveOptions.completionStep, 8);
+});
+
+test('step 8 keeps phone-registered accounts on email-code flow when page is email verification', async () => {
+  const calls = {
+    getMailConfigCalls: 0,
+    helperCalls: [],
+    completions: [],
+    resolveCalls: 0,
+  };
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (step, payload) => {
+      calls.completions.push({ step, payload });
+    },
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async () => ({ state: 'verification_page', displayedEmail: 'phone-user@example.com' }),
+    getOAuthFlowRemainingMs: async () => 5000,
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => defaultTimeoutMs,
+    getMailConfig: () => {
+      calls.getMailConfigCalls += 1;
+      return {
+        provider: 'qq',
+        label: 'QQ 邮箱',
+      };
+    },
+    getState: async () => ({
+      accountIdentifierType: 'phone',
+      signupPhoneCompletedActivation: {
+        activationId: 'signup-done',
+        phoneNumber: '66959916439',
+      },
+    }),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    phoneVerificationHelpers: {
+      completeLoginPhoneVerificationFlow: async (tabId, options) => {
+        calls.helperCalls.push({ tabId, visibleStep: options.visibleStep, state: options.state });
+        return { code: '654321' };
+      },
+    },
+    resolveSignupMethod: () => 'phone',
+    resolveVerificationStep: async () => {
+      calls.resolveCalls += 1;
+    },
+    rerunStep7ForStep8Recovery: async () => {
+      throw new Error('phone login branch should not rerun step 7 in this test');
+    },
+    reuseOrCreateTab: async () => {},
+    setState: async () => {},
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep8({
+    visibleStep: 8,
+    accountIdentifierType: 'phone',
+    signupPhoneCompletedActivation: {
+      activationId: 'signup-done',
+      phoneNumber: '66959916439',
+    },
+    oauthUrl: 'https://oauth.example/latest',
+  });
+
+  assert.equal(calls.getMailConfigCalls, 1);
+  assert.equal(calls.resolveCalls, 1);
+  assert.deepStrictEqual(calls.helperCalls, []);
+  assert.deepStrictEqual(calls.completions, []);
+});
+
+test('step 8 routes only a real phone verification page through sms helper', async () => {
+  const calls = {
+    getMailConfigCalls: 0,
+    helperCalls: [],
+    completions: [],
+  };
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (step, payload) => {
+      calls.completions.push({ step, payload });
+    },
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async () => ({ state: 'phone_verification_page' }),
+    getOAuthFlowRemainingMs: async () => 5000,
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => defaultTimeoutMs,
+    getMailConfig: () => {
+      calls.getMailConfigCalls += 1;
+      return {
+        provider: 'qq',
+        label: 'QQ 邮箱',
+      };
+    },
+    getState: async () => ({}),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    phoneVerificationHelpers: {
+      completeLoginPhoneVerificationFlow: async (tabId, options) => {
+        calls.helperCalls.push({ tabId, visibleStep: options.visibleStep, state: options.state });
+        return { code: '654321' };
+      },
+    },
+    resolveVerificationStep: async () => {
+      throw new Error('real phone verification branch should not call email verification flow');
+    },
+    rerunStep7ForStep8Recovery: async () => {
+      throw new Error('real phone verification branch should not rerun step 7 in this test');
+    },
+    reuseOrCreateTab: async () => {},
+    setState: async () => {},
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep8({
+    visibleStep: 8,
+    accountIdentifierType: 'phone',
+    oauthUrl: 'https://oauth.example/latest',
+  });
+
+  assert.equal(calls.getMailConfigCalls, 0);
+  assert.deepStrictEqual(calls.helperCalls, [
+    {
+      tabId: 1,
+      visibleStep: 8,
+      state: {
+        visibleStep: 8,
+        accountIdentifierType: 'phone',
+        oauthUrl: 'https://oauth.example/latest',
+      },
+    },
+  ]);
+  assert.deepStrictEqual(calls.completions, [
+    {
+      step: 8,
+      payload: {
+        phoneVerification: true,
+        loginPhoneVerification: true,
+        code: '654321',
+      },
+    },
+  ]);
+});
+
+test('step 8 submits add-email before polling the email verification code', async () => {
+  const calls = {
+    contentMessages: [],
+    resolvedStates: [],
+    setStates: [],
+    mailStates: [],
+  };
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async () => ({ state: 'add_email_page', url: 'https://auth.openai.com/add-email' }),
+    getOAuthFlowRemainingMs: async () => 5000,
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => defaultTimeoutMs,
+    getMailConfig: (state) => {
+      calls.mailStates.push(state);
+      return {
+        provider: 'qq',
+        label: 'QQ 邮箱',
+        source: 'mail-qq',
+        url: 'https://mail.qq.com',
+        navigateOnReuse: false,
+      };
+    },
+    getState: async () => ({
+      email: '',
+      password: 'secret',
+      oauthUrl: 'https://oauth.example/latest',
+    }),
+    getTabId: async (sourceName) => (sourceName === 'signup-page' ? 1 : 2),
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    resolveSignupEmailForFlow: async (state, options = {}) => {
+      calls.resolvedStates.push(state);
+      calls.resolveOptions = options;
+      return 'new.user@example.com';
+    },
+    resolveVerificationStep: async (_step, state, _mail, options) => {
+      calls.resolvedVerification = { state, options };
+    },
+    rerunStep7ForStep8Recovery: async () => {},
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_source, message) => {
+      calls.contentMessages.push(message);
+      assert.equal(message.type, 'SUBMIT_ADD_EMAIL');
+      assert.equal(message.payload.email, 'new.user@example.com');
+      return {
+        submitted: true,
+        displayedEmail: 'new.user@example.com',
+        url: 'https://auth.openai.com/email-verification',
+      };
+    },
+    setState: async (payload) => {
+      calls.setStates.push(payload);
+    },
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep8({
+    visibleStep: 8,
+    accountIdentifierType: 'phone',
+    oauthUrl: 'https://oauth.example/latest',
+  });
+
+  assert.equal(calls.contentMessages.length, 1);
+  assert.equal(calls.resolvedStates.length, 1);
+  assert.equal(calls.resolveOptions.preserveAccountIdentity, true);
+  assert.equal(calls.mailStates[0].email, 'new.user@example.com');
+  assert.equal(calls.resolvedVerification.state.email, 'new.user@example.com');
+  assert.equal(calls.resolvedVerification.options.targetEmail, 'new.user@example.com');
+  assert.deepStrictEqual(calls.setStates, [
+    {
+      email: 'new.user@example.com',
+      step8VerificationTargetEmail: 'new.user@example.com',
+    },
+    {
+      step8VerificationTargetEmail: 'new.user@example.com',
+    },
+  ]);
 });
 
 test('Plus login-code step reuses step 8 verification logic but completes visible step 11', async () => {
@@ -155,7 +417,13 @@ test('Plus login-code step reuses step 8 verification logic but completes visibl
   assert.equal(resolvedStep, 8);
   assert.equal(resolvedOptions.completionStep, 11);
   assert.equal(resolvedOptions.targetEmail, 'plus.user@example.com');
-  assert.deepStrictEqual(readyOptions, { visibleStep: 11, authLoginStep: 10, timeoutMs: 9000 });
+  assert.deepStrictEqual(readyOptions, {
+    visibleStep: 11,
+    authLoginStep: 10,
+    allowPhoneVerificationPage: true,
+    allowAddEmailPage: true,
+    timeoutMs: 9000,
+  });
   assert.deepStrictEqual(remainingStepCalls, [11, 11]);
 });
 

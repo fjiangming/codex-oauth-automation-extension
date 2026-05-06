@@ -296,3 +296,193 @@ return {
 
   assert.equal(timeoutMs, 15000);
 });
+
+test('oauth timeout budget clamps local timeout when enabled by default', async () => {
+  const api = new Function(`
+const LOG_PREFIX = '[test]';
+const OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+${extractFunction('buildOAuthFlowTimeoutError')}
+${extractFunction('normalizeOAuthFlowDeadlineAt')}
+${extractFunction('normalizeOAuthFlowSourceUrl')}
+${extractFunction('getOAuthFlowRemainingMs')}
+${extractFunction('getOAuthFlowStepTimeoutMs')}
+return {
+  getOAuthFlowStepTimeoutMs,
+};
+`)();
+
+  const timeoutMs = await api.getOAuthFlowStepTimeoutMs(15000, {
+    step: 8,
+    actionLabel: '登录验证码流程',
+    state: {
+      oauthUrl: 'https://oauth.example/current',
+      oauthFlowDeadlineAt: Date.now() + 1200,
+      oauthFlowDeadlineSourceUrl: 'https://oauth.example/current',
+    },
+  });
+
+  assert(timeoutMs <= 1200);
+  assert(timeoutMs >= 1000);
+});
+
+test('oauth timeout budget disabled mode ignores active deadlines', async () => {
+  const api = new Function(`
+const LOG_PREFIX = '[test]';
+const OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+${extractFunction('buildOAuthFlowTimeoutError')}
+${extractFunction('normalizeOAuthFlowDeadlineAt')}
+${extractFunction('normalizeOAuthFlowSourceUrl')}
+${extractFunction('getOAuthFlowRemainingMs')}
+${extractFunction('getOAuthFlowStepTimeoutMs')}
+return {
+  getOAuthFlowStepTimeoutMs,
+};
+`)();
+
+  const timeoutMs = await api.getOAuthFlowStepTimeoutMs(15000, {
+    step: 9,
+    actionLabel: 'OAuth localhost 回调',
+    state: {
+      oauthFlowTimeoutEnabled: false,
+      oauthUrl: 'https://oauth.example/current',
+      oauthFlowDeadlineAt: Date.now() - 1000,
+      oauthFlowDeadlineSourceUrl: 'https://oauth.example/current',
+    },
+  });
+
+  assert.equal(timeoutMs, 15000);
+});
+
+test('startOAuthFlowTimeoutWindow clears stale deadline when timeout is disabled', async () => {
+  const events = {
+    stateUpdates: [],
+    logs: [],
+  };
+  const api = new Function('events', `
+const OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+async function getState() {
+  return {
+    oauthFlowTimeoutEnabled: false,
+    oauthFlowDeadlineAt: Date.now() - 1000,
+    oauthFlowDeadlineSourceUrl: 'https://oauth.example/old',
+  };
+}
+async function setState(update) {
+  events.stateUpdates.push(update);
+}
+async function addLog(message, level) {
+  events.logs.push({ message, level });
+}
+${extractFunction('normalizeOAuthFlowSourceUrl')}
+${extractFunction('startOAuthFlowTimeoutWindow')}
+return {
+  startOAuthFlowTimeoutWindow,
+};
+`)(events);
+
+  const result = await api.startOAuthFlowTimeoutWindow({
+    step: 7,
+    oauthUrl: 'https://oauth.example/current',
+  });
+
+  assert.equal(result, null);
+  assert.deepStrictEqual(events.stateUpdates, [{
+    oauthFlowDeadlineAt: null,
+    oauthFlowDeadlineSourceUrl: null,
+  }]);
+  assert.match(events.logs[0].message, /授权后链总超时已关闭/);
+});
+
+test('executeStep retries fetch-network errors for step 4 with cooldown and bounded attempts', async () => {
+  const api = new Function(`
+const LOG_PREFIX = '[test]';
+const STOP_ERROR_MESSAGE = '流程已被用户停止。';
+const BROWSER_SWITCH_REQUIRED_ERROR_PREFIX = 'BROWSER_SWITCH_REQUIRED::';
+const AUTH_CHAIN_STEP_IDS = new Set([7, 8, 9, 10]);
+const STEP_FETCH_NETWORK_RETRY_POLICIES = new Map([[4, { maxAttempts: 3, cooldownMs: 1 }]]);
+let activeTopLevelAuthChainExecution = null;
+let stopRequested = false;
+const events = {
+  logs: [],
+  statusCalls: [],
+  registryCalls: [],
+  sleepCalls: [],
+};
+let runCount = 0;
+
+async function addLog(message, level = 'info') {
+  events.logs.push({ message, level });
+}
+async function setStepStatus(step, status) {
+  events.statusCalls.push({ step, status });
+}
+async function humanStepDelay() {}
+async function getState() {
+  return {
+    flowStartTime: null,
+    stepStatuses: {},
+  };
+}
+function getErrorMessage(error) {
+  return error?.message || String(error || '');
+}
+async function appendManualAccountRunRecordIfNeeded() {}
+function isTerminalSecurityBlockedError() {
+  return false;
+}
+async function handleCloudflareSecurityBlocked() {}
+function doesStepUseCompletionSignal() {
+  return false;
+}
+async function sleepWithStop(ms) {
+  events.sleepCalls.push(ms);
+}
+const stepRegistry = {
+  getStepDefinition(step) {
+    return { id: step, key: 'fetch-signup-code' };
+  },
+  async executeStep(step) {
+    events.registryCalls.push(step);
+    runCount += 1;
+    if (runCount < 3) {
+      throw new TypeError('Failed to fetch');
+    }
+  },
+};
+function getStepRegistryForState() {
+  return stepRegistry;
+}
+function getStepDefinitionForState(step) {
+  return { id: step, key: 'fetch-signup-code' };
+}
+
+${extractFunction('isStopError')}
+${extractFunction('isRetryableContentScriptTransportError')}
+${extractFunction('isStepFetchNetworkRetryableError')}
+${extractFunction('getStepFetchNetworkRetryPolicy')}
+${extractFunction('throwIfStopped')}
+${extractFunction('isAuthChainStep')}
+${extractFunction('acquireTopLevelAuthChainExecution')}
+${extractFunction('isBrowserSwitchRequiredError')}
+${extractFunction('getBrowserSwitchRequiredMessage')}
+${extractFunction('handleBrowserSwitchRequired')}
+${extractFunction('executeStep')}
+
+return {
+  executeStep,
+  snapshot() {
+    return events;
+  },
+};
+`)();
+
+  await api.executeStep(4);
+
+  const events = api.snapshot();
+  assert.deepStrictEqual(events.registryCalls, [4, 4, 4]);
+  assert.deepStrictEqual(events.sleepCalls, [1, 1]);
+  assert.equal(
+    events.logs.filter(({ message }) => message.includes('[NETWORK_FETCH_RETRY]')).length >= 3,
+    true
+  );
+});

@@ -2,29 +2,34 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-test('step 6 runs cookie cleanup and completes from background', async () => {
-  const source = fs.readFileSync('background/steps/clear-login-cookies.js', 'utf8');
+test('step 6 waits for registration success and completes from background', async () => {
+  const source = fs.readFileSync('background/steps/wait-registration-success.js', 'utf8');
   const globalScope = {};
   const api = new Function('self', `${source}; return self.MultiPageBackgroundStep6;`)(globalScope);
 
   const events = {
-    cleanupCalls: 0,
+    logs: [],
+    waits: [],
     completedSteps: [],
   };
 
   const executor = api.createStep6Executor({
+    addLog: async (message, level = 'info') => {
+      events.logs.push({ message, level });
+    },
     completeStepFromBackground: async (step) => {
       events.completedSteps.push(step);
     },
-    runPreStep6CookieCleanup: async () => {
-      events.cleanupCalls += 1;
+    sleepWithStop: async (ms) => {
+      events.waits.push(ms);
     },
   });
 
   await executor.executeStep6();
 
-  assert.equal(events.cleanupCalls, 1);
+  assert.deepStrictEqual(events.waits, [20000]);
   assert.deepStrictEqual(events.completedSteps, [6]);
+  assert.ok(events.logs.some(({ message }) => /等待 20 秒/.test(message)));
 });
 
 test('step 7 retries up to configured limit and then fails', async () => {
@@ -222,6 +227,135 @@ test('step 7 forwards direct OAuth consent skip metadata when completing', async
         loginVerificationRequestedAt: null,
         skipLoginVerificationStep: true,
         directOAuthConsentPage: true,
+      },
+    },
+  ]);
+});
+
+test('step 7 forwards phone login identity payload when account identifier is phone', async () => {
+  const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    payloads: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async () => {},
+    completeStepFromBackground: async () => {},
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({
+      accountIdentifierType: 'phone',
+      accountIdentifier: '66959916439',
+      signupPhoneNumber: '66959916439',
+      signupPhoneCompletedActivation: {
+        activationId: 'signup-done',
+        phoneNumber: '66959916439',
+        countryId: 52,
+        countryLabel: 'Thailand',
+      },
+      password: 'secret',
+    }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => 'https://oauth.example/latest',
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_sourceName, message) => {
+      events.payloads.push(message.payload);
+      return {
+        step6Outcome: 'success',
+        state: 'phone_verification_page',
+        loginVerificationRequestedAt: 123456,
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    accountIdentifierType: 'phone',
+    accountIdentifier: '66959916439',
+    signupPhoneNumber: '66959916439',
+    signupPhoneCompletedActivation: {
+      activationId: 'signup-done',
+      phoneNumber: '66959916439',
+      countryId: 52,
+      countryLabel: 'Thailand',
+    },
+    password: 'secret',
+  });
+
+  assert.deepStrictEqual(events.payloads, [
+    {
+      email: '',
+      phoneNumber: '66959916439',
+      countryId: 52,
+      countryLabel: 'Thailand',
+      accountIdentifier: '66959916439',
+      loginIdentifierType: 'phone',
+      password: 'secret',
+      visibleStep: 7,
+    },
+  ]);
+});
+
+test('step 7 can start from a manually filled signup phone without completed step 2 or step 3 state', async () => {
+  const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    payloads: [],
+    completions: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async () => {},
+    completeStepFromBackground: async (step, payload) => {
+      events.completions.push({ step, payload });
+    },
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({
+      accountIdentifierType: 'phone',
+      accountIdentifier: '+447780579093',
+      signupPhoneNumber: '+447780579093',
+      stepStatuses: { 2: 'pending', 3: 'pending' },
+    }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => 'https://oauth.example/latest',
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_sourceName, message) => {
+      events.payloads.push(message.payload);
+      return {
+        step6Outcome: 'success',
+        state: 'phone_verification_page',
+        loginVerificationRequestedAt: 987654,
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+447780579093',
+    signupPhoneNumber: '+447780579093',
+    stepStatuses: { 2: 'pending', 3: 'pending' },
+  });
+
+  assert.equal(events.payloads[0].loginIdentifierType, 'phone');
+  assert.equal(events.payloads[0].phoneNumber, '+447780579093');
+  assert.equal(events.payloads[0].email, '');
+  assert.equal(events.payloads[0].password, '');
+  assert.deepStrictEqual(events.completions, [
+    {
+      step: 7,
+      payload: {
+        loginVerificationRequestedAt: 987654,
       },
     },
   ]);

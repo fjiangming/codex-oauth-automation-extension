@@ -48,8 +48,8 @@
   - 页面要求填写 `age`
 - 支持 `Auto` 多轮运行
 - 支持中途 `Stop`
-- 支持通过日志区的 `记录` 按钮查看邮箱记录面板，按邮箱展示最终状态、时间、失败标签和重试次数
-- 支持将邮箱记录完整快照同步到本地 helper，便于开发者直接查看 `data/account-run-history.json`
+- 支持通过日志区的 `记录` 按钮查看账号记录面板，同一轮的邮箱和手机号会合并显示，按最终状态、时间、失败标签和重试次数筛选
+- 支持将账号记录完整快照同步到本地 helper，便于开发者直接查看 `data/account-run-history.json`
 - Step 8 会自动寻找 OAuth 同意页的“继续”按钮，并通过 Chrome debugger 输入事件发起点击，然后监听本地回调地址
 
 
@@ -308,7 +308,7 @@ python3 scripts/hotmail_helper.py
 Hotmail helper listening on http://127.0.0.1:17373
 ```
 
-同时还会输出本地邮箱记录快照文件路径。看到这些输出后，再回到扩展里点 `校验`、`复制最新验证码`；邮箱记录快照会按默认本地 helper 地址自动同步，无需再手动开启本地同步。
+同时还会输出本地账号记录快照文件路径。看到这些输出后，再回到扩展里点 `校验`、`复制最新验证码`；账号记录快照会按默认本地 helper 地址自动同步，无需再手动开启本地同步。
 
 #### 最小排错说明
 
@@ -506,7 +506,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 3. `Fill Password`
 4. `Get Signup Code`
 5. `Fill Name / Birthday`
-6. `Clear Login Cookies`
+6. `Wait Registration Success`
 7. `Login via OAuth`
 8. `Get Login Code`
 9. `Manual OAuth Confirm`
@@ -544,7 +544,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 - 打开 `https://chatgpt.com/`
 - 确认官网首页或注册入口弹窗已经可操作
 
-这一步不再获取 `OAuth` 链接；`OAuth` 链接会在 Step 6 内部按需刷新。
+这一步不再获取 `OAuth` 链接；`OAuth` 链接会在 Step 7 内部按需刷新。
 
 ### Step 2: Signup + Email
 
@@ -600,15 +600,14 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 如果资料页出现顶部“我同意以下所有各项”总勾选框，脚本会优先自动勾选，再点击 `完成帐户创建`。
 点击 `完成帐户创建` 后，Step 5 会立刻记为完成，不再等待页面跳转结果；自动运行在进入 Step 6 前只会等待当前页面加载完成，不再接管 ChatGPT 跳转或 onboarding 跳过逻辑。
 
-### Step 6: Clear Login Cookies
+### Step 6: Wait Registration Success
 
-这一步只负责登录前清理环境：
+这一步只负责等待注册完成后的页面状态稳定：
 
-- 开始前先等待 10 秒
-- 直接删除 `chatgpt.com / openai.com` 相关 cookies
-- 必要时再用 `browsingData` 补扫一次
+- 固定等待 20 秒
+- 不再清理 `chatgpt.com / openai.com` 相关 cookies
+- 等待完成后直接进入后续 OAuth 登录链路
 
-把 cookies 清理独立成单独步骤后，后续登录链路的重开锚点就不再落在这里。
 
 ### Step 7: Login via OAuth
 
@@ -835,3 +834,11 @@ sidepanel/                 侧边栏 UI
 - 没有硬编码你的 CPA 地址、密码或账户
 - 自定义密码只存在当前会话存储中
 - 邮箱和密码会被记录到本轮 `accounts` 中，便于追踪本次运行结果
+
+## 来源与致谢
+
+本项目早期代码与 [whwh1233/StepFlow-Duck](https://github.com/whwh1233/StepFlow-Duck) 同源，共同历史截至 `387e177e005e9863f3de193ad8b954e9efb5fd1d`。当前维护者最初接触到的是社群内分享的 zip 软件包，当时压缩包内没有 `LICENSE` 文件，也没有任何 GitHub 远程仓库地址或开源协议声明。
+
+后续核对发现，原作者也将同源早期代码发布到了 GitHub，并在 `72218aab151a2ff74bf1763684a6370657c7bc57` 提交补充 MIT License。当前仓库已改为 MIT License，并补充原作者署名与来源说明。完整时间线见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+感谢原作者 whwh1233、Jimmy 以及后续所有贡献者的早期工作和持续改进。当前仓库中的相关服务入口、贡献入口、交流群入口和其他维护者整理的入口，不代表原项目作者背书。

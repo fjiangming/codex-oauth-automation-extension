@@ -11,6 +11,7 @@ let step8TabUpdatedListener = null;
 let step8PendingReject = null;
 let cleanupCalls = 0;
 let timeoutCalls = 0;
+let remainingCalls = 0;
 let recoveryCalls = 0;
 let completePayload = null;
 const logs = [];
@@ -25,7 +26,7 @@ const chrome = {
           if (typeof webNavListener === 'function') {
             webNavListener({ tabId: 123, url: callbackUrl });
           }
-        }, 0);
+        }, 25);
       },
       removeListener() {},
     },
@@ -107,6 +108,11 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
   };
 }
 
+async function getOAuthFlowRemainingMs() {
+  remainingCalls += 1;
+  return null;
+}
+
 function getStep8CallbackUrlFromNavigation(details, signupTabId) {
   if (
     Number(signupTabId) === Number(details?.tabId)
@@ -163,6 +169,7 @@ const executor = self.MultiPageBackgroundStep9.createStep9Executor({
   clickWithDebugger,
   completeStepFromBackground,
   ensureStep8SignupPageReady,
+  getOAuthFlowRemainingMs,
   getOAuthFlowStepTimeoutMs,
   getStep8CallbackUrlFromNavigation,
   getStep8CallbackUrlFromTabUpdate,
@@ -197,6 +204,7 @@ return {
     return {
       cleanupCalls,
       timeoutCalls,
+      remainingCalls,
       recoveryCalls,
       completePayload,
       hasPendingReject: Boolean(step8PendingReject),

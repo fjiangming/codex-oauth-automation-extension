@@ -9,3 +9,7 @@
 .npm-test.log
 .omx/
 /node_modules
+/.runtime
+/docs/新步骤顺序
+# Local exported runtime settings
+/config.json

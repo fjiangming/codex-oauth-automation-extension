@@ -44,5 +44,6 @@ test('logging/status add-phone detection ignores step 2 phone-entry switch failu
     true
   );
   assert.equal(loggingStatus.getLoginAuthStateLabel('phone_verification_page'), '手机验证码页');
+  assert.equal(loggingStatus.getLoginAuthStateLabel('add_email_page'), '添加邮箱页');
   assert.equal(loggingStatus.getLoginAuthStateLabel('oauth_consent_page'), 'OAuth 授权页');
 });

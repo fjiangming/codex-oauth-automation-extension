@@ -68,9 +68,99 @@
     }
 
     function buildRecordId(record = {}) {
-      return String(record.recordId || record.email || '')
-        .trim()
-        .toLowerCase();
+      const rawRecordId = String(record.recordId || '').trim();
+      if (rawRecordId) {
+        return rawRecordId.toLowerCase();
+      }
+      const rawIdentifierType = String(record.accountIdentifierType || '').trim().toLowerCase();
+      const hasPhoneOnlyIdentifier = !record.email && (
+        record.phoneNumber
+        || record.phone
+        || record.number
+        || (record.accountIdentifier && !/@/.test(String(record.accountIdentifier || '')))
+      );
+      const identifierType = rawIdentifierType === 'phone'
+        || (!rawIdentifierType && hasPhoneOnlyIdentifier)
+        ? 'phone'
+        : 'email';
+      const identifier = String(
+        record.accountIdentifier
+        || (identifierType === 'phone' ? (record.phoneNumber || record.phone || record.number || '') : (record.email || ''))
+        || ''
+      ).trim();
+      if (!identifier) {
+        return '';
+      }
+      return identifierType === 'phone'
+        ? `phone:${identifier.toLowerCase()}`
+        : identifier.toLowerCase();
+    }
+
+    function getRecordIdentifierType(record = {}) {
+      const rawType = String(record.accountIdentifierType || '').trim().toLowerCase();
+      if (rawType === 'phone') {
+        return 'phone';
+      }
+      if (rawType === 'email') {
+        return 'email';
+      }
+      if (!record.email && (record.phoneNumber || record.phone || record.number)) {
+        return 'phone';
+      }
+      if (!record.email && record.accountIdentifier && !/@/.test(String(record.accountIdentifier || ''))) {
+        return 'phone';
+      }
+      return 'email';
+    }
+
+    function getRecordEmail(record = {}) {
+      const identifierType = getRecordIdentifierType(record);
+      return String(
+        record.email
+        || (identifierType === 'email' ? record.accountIdentifier : '')
+        || ''
+      ).trim();
+    }
+
+    function getRecordPhoneNumber(record = {}) {
+      const identifierType = getRecordIdentifierType(record);
+      return String(
+        record.phoneNumber
+        || record.phone
+        || record.number
+        || (identifierType === 'phone' ? record.accountIdentifier : '')
+        || ''
+      ).trim();
+    }
+
+    function getRecordPrimaryIdentifier(record = {}) {
+      const identifierType = getRecordIdentifierType(record);
+      const email = getRecordEmail(record);
+      const phoneNumber = getRecordPhoneNumber(record);
+      return identifierType === 'phone'
+        ? (phoneNumber || String(record.accountIdentifier || '').trim() || email)
+        : (email || String(record.accountIdentifier || '').trim() || phoneNumber);
+    }
+
+    function getRecordSecondaryIdentifier(record = {}) {
+      const identifierType = getRecordIdentifierType(record);
+      const email = getRecordEmail(record);
+      const phoneNumber = getRecordPhoneNumber(record);
+      if (identifierType === 'phone' && email) {
+        return `邮箱 ${email}`;
+      }
+      if (identifierType !== 'phone' && phoneNumber) {
+        return `绑定手机号 ${phoneNumber}`;
+      }
+      return '';
+    }
+
+    function getRecordTitle(record = {}) {
+      const primaryIdentifier = getRecordPrimaryIdentifier(record) || '(空账号)';
+      const secondaryIdentifier = getRecordSecondaryIdentifier(record);
+      return secondaryIdentifier
+        ? `${primaryIdentifier} / ${secondaryIdentifier}`
+        : primaryIdentifier;
     }
 
     function getAccountRunRecords(currentState = state.getLatestState()) {
@@ -262,7 +352,7 @@
       }
 
       if (!allRecords.length) {
-        dom.accountRecordsMeta.textContent = '暂无邮箱记录';
+        dom.accountRecordsMeta.textContent = '暂无账号记录';
         return;
       }
 
@@ -337,7 +427,7 @@
 
       const message = allRecords.length
         ? `当前筛选“${getFilterConfig(activeFilter).metaLabel}”下暂无记录`
-        : '暂无邮箱记录';
+        : '暂无账号记录';
       dom.accountRecordsList.innerHTML = `<div class="account-records-empty">${escapeHtml(message)}</div>`;
     }
 
@@ -357,6 +447,9 @@
 
       dom.accountRecordsList.innerHTML = visibleRecords.map((record) => {
         const recordId = buildRecordId(record);
+        const primaryIdentifier = getRecordPrimaryIdentifier(record) || '(空账号)';
+        const secondaryIdentifier = getRecordSecondaryIdentifier(record);
+        const recordTitle = getRecordTitle(record);
         const statusMeta = getStatusMeta(record);
         const summaryText = getRecordSummaryText(record);
         const retryCount = normalizeRetryCount(record.retryCount);
@@ -383,12 +476,15 @@
           <div
             class="${itemClassNames}"
             data-account-record-id="${escapeHtml(recordId)}"
-            title="${escapeHtml(String(record.email || ''))}"
+            title="${escapeHtml(recordTitle)}"
           >
             <div class="account-record-item-top">
               <div class="account-record-item-email-row">
                 ${selectionMarkup}
-                <div class="account-record-item-email mono">${escapeHtml(String(record.email || '').trim() || '(空邮箱)')}</div>
+                <div class="account-record-item-identity">
+                  <div class="account-record-item-email mono">${escapeHtml(primaryIdentifier)}</div>
+                  ${secondaryIdentifier ? `<div class="account-record-item-secondary mono">${escapeHtml(secondaryIdentifier)}</div>` : ''}
+                </div>
               </div>
               <div class="account-record-item-side">
                 <span class="account-record-item-status">${escapeHtml(statusMeta.label)}</span>
@@ -470,13 +566,13 @@
     async function clearRecords() {
       const records = getAccountRunRecords();
       if (!records.length) {
-        helpers.showToast?.('没有可清理的邮箱记录。', 'warn', 1800);
+        helpers.showToast?.('没有可清理的账号记录。', 'warn', 1800);
         return;
       }
 
       const confirmed = await helpers.openConfirmModal({
-        title: '清理邮箱记录',
-        message: '确认清理当前全部邮箱记录吗？该操作会同时清空面板记录与本地同步快照。',
+        title: '清理账号记录',
+        message: '确认清理当前全部账号记录吗？该操作会同时清空面板记录与本地同步快照。',
         confirmLabel: '确认清理',
         confirmVariant: 'btn-danger',
       });
@@ -497,19 +593,19 @@
       selectionMode = false;
       resetSelection();
       state.syncLatestState({ accountRunHistory: [] });
-      helpers.showToast?.(`已清理 ${Math.max(0, Number(response?.clearedCount) || 0)} 条邮箱记录。`, 'success', 2200);
+      helpers.showToast?.(`已清理 ${Math.max(0, Number(response?.clearedCount) || 0)} 条账号记录。`, 'success', 2200);
     }
 
     async function deleteSelectedRecords() {
       const recordIds = Array.from(selectedRecordIds).filter(Boolean);
       if (!recordIds.length) {
-        helpers.showToast?.('请先勾选要删除的邮箱记录。', 'warn', 1800);
+        helpers.showToast?.('请先勾选要删除的账号记录。', 'warn', 1800);
         return;
       }
 
       const confirmed = await helpers.openConfirmModal({
         title: '删除选中记录',
-        message: `确认删除选中的 ${recordIds.length} 条邮箱记录吗？该操作会同步更新本地 helper 快照。`,
+        message: `确认删除选中的 ${recordIds.length} 条账号记录吗？该操作会同步更新本地 helper 快照。`,
         confirmLabel: '确认删除',
         confirmVariant: 'btn-danger',
       });
@@ -534,7 +630,7 @@
 
       resetSelection();
       state.syncLatestState({ accountRunHistory: nextRecords });
-      helpers.showToast?.(`已删除 ${Math.max(0, Number(response?.deletedCount) || 0)} 条邮箱记录。`, 'success', 2200);
+      helpers.showToast?.(`已删除 ${Math.max(0, Number(response?.deletedCount) || 0)} 条账号记录。`, 'success', 2200);
     }
 
     function handleStatsClick(event) {
@@ -619,14 +715,14 @@
         try {
           await deleteSelectedRecords();
         } catch (error) {
-          helpers.showToast?.(`删除邮箱记录失败：${error.message}`, 'error');
+          helpers.showToast?.(`删除账号记录失败：${error.message}`, 'error');
         }
       });
       dom.btnClearAccountRecords?.addEventListener('click', async () => {
         try {
           await clearRecords();
         } catch (error) {
-          helpers.showToast?.(`清理邮箱记录失败：${error.message}`, 'error');
+          helpers.showToast?.(`清理账号记录失败：${error.message}`, 'error');
         }
       });
     }

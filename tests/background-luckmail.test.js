@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const source = fs.readFileSync('background.js', 'utf8');
+const messageRouterSource = fs.readFileSync('background/message-router.js', 'utf8');
+const messageRouterApi = new Function(
+  'self',
+  `${messageRouterSource}; return self.MultiPageBackgroundMessageRouter;`
+)({});
 
 function extractFunction(name) {
   const markers = [`async function ${name}(`, `function ${name}(`];
@@ -50,6 +55,44 @@ function extractFunction(name) {
   }
 
   return source.slice(start, end);
+}
+
+function createLuckmailPlatformVerifyRouter({
+  state,
+  stepKeyByStep = { 10: 'platform-verify' },
+} = {}) {
+  let clearedOptions = null;
+  let usedMarker = null;
+  const logs = [];
+  const router = messageRouterApi.createMessageRouter({
+    addLog: async (message, level) => {
+      logs.push({ message, level });
+    },
+    buildLocalhostCleanupPrefix: () => '',
+    clearLuckmailRuntimeState: async (options) => {
+      clearedOptions = options;
+    },
+    closeLocalhostCallbackTabs: async () => {},
+    closeTabsByUrlPrefix: async () => {},
+    finalizeIcloudAliasAfterSuccessfulFlow: async () => {},
+    finalizePhoneActivationAfterSuccessfulFlow: async () => {},
+    getCurrentLuckmailPurchase: (latestState) => latestState.currentLuckmailPurchase,
+    getState: async () => state,
+    getStepDefinitionForState: (step) => ({ id: step, key: stepKeyByStep[step] || '' }),
+    isHotmailProvider: () => false,
+    isLocalhostOAuthCallbackUrl: () => true,
+    isLuckmailProvider: (latestState) => latestState.mailProvider === 'luckmail-api',
+    patchHotmailAccount: async () => {},
+    setLuckmailPurchaseUsedState: async (purchaseId, used) => {
+      usedMarker = { purchaseId, used };
+    },
+  });
+  return {
+    router,
+    snapshot() {
+      return { clearedOptions, usedMarker, logs };
+    },
+  };
 }
 
 test('ensureLuckmailPurchaseForFlow buys openai mailbox and defaults email type to ms_graph', async () => {
@@ -451,6 +494,9 @@ const PERSISTED_SETTING_DEFAULTS = {
   luckmailBaseUrl: DEFAULT_LUCKMAIL_BASE_URL,
   luckmailEmailType: DEFAULT_LUCKMAIL_EMAIL_TYPE,
   luckmailDomain: '',
+  luckmailUsedPurchases: {},
+  luckmailPreserveTagId: 0,
+  luckmailPreserveTagName: '保留',
 };
 const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
 function normalizeLuckmailBaseUrl(value) {
@@ -461,6 +507,18 @@ function normalizeLuckmailEmailType(value) {
   return ['self_built', 'ms_imap', 'ms_graph', 'google_variant'].includes(String(value || '').trim())
     ? String(value || '').trim()
     : DEFAULT_LUCKMAIL_EMAIL_TYPE;
+}
+function normalizeLuckmailPurchaseId(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? String(Math.floor(numeric)) : '';
+}
+function normalizeLuckmailUsedPurchases(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.entries(value).reduce((result, [key, used]) => {
+    const normalizedKey = normalizeLuckmailPurchaseId(key);
+    if (normalizedKey) result[normalizedKey] = Boolean(used);
+    return result;
+  }, {});
 }
 function resolveLegacyAutoStepDelaySeconds() {
   return undefined;
@@ -486,6 +544,17 @@ return {
     luckmailBaseUrl: 'https://demo.example.com',
     luckmailEmailType: 'ms_imap',
     luckmailDomain: 'outlook.com',
+  });
+
+  const statePayload = api.buildPersistentSettingsPayload({
+    luckmailUsedPurchases: { 88: true, 99: false, bad: true },
+    luckmailPreserveTagId: '9',
+    luckmailPreserveTagName: '  保留邮箱  ',
+  });
+  assert.deepStrictEqual(statePayload, {
+    luckmailUsedPurchases: { 88: true, 99: false },
+    luckmailPreserveTagId: 9,
+    luckmailPreserveTagName: '保留邮箱',
   });
 });
 
@@ -726,17 +795,9 @@ test('resetState preserves LuckMail session config, used map, and preserve tag c
   assert.equal(snapshot.storedPayload.currentPhoneActivation, null);
 });
 
-test('handleStepData step 10 marks current LuckMail purchase as used and clears runtime state', async () => {
-  const bundle = extractFunction('handleStepData');
-
-  const factory = new Function(`
-let clearedOptions = null;
-let usedMarker = null;
-const logs = [];
-
-async function closeLocalhostCallbackTabs() {}
-async function getState() {
-  return {
+test('message router platform verify marks current LuckMail purchase as used and clears runtime state', async () => {
+  const { router, snapshot } = createLuckmailPlatformVerifyRouter({
+    state: {
     mailProvider: 'luckmail-api',
     currentHotmailAccountId: null,
     currentLuckmailPurchase: {
@@ -744,60 +805,159 @@ async function getState() {
       email_address: 'demo@outlook.com',
     },
     email: 'demo@outlook.com',
-  };
+    },
+  });
+
+  await router.handleStepData(10, {
+    localhostUrl: 'http://localhost:1455/auth/callback?code=abc&state=xyz',
+  });
+
+  const result = snapshot();
+  assert.deepStrictEqual(result.usedMarker, { purchaseId: 123, used: true });
+  assert.deepStrictEqual(result.clearedOptions, { clearEmail: true });
+  assert.equal(result.logs.at(-1).message, '当前 LuckMail 邮箱运行态已清空，下轮将优先复用未用邮箱或重新购买邮箱。');
+});
+
+test('message router marks current LuckMail purchase as used on Plus platform verify step 13', async () => {
+  const { router, snapshot } = createLuckmailPlatformVerifyRouter({
+    state: {
+    plusModeEnabled: true,
+    mailProvider: 'luckmail-api',
+    currentHotmailAccountId: null,
+    currentLuckmailPurchase: {
+      id: 456,
+      email_address: 'plus@outlook.com',
+    },
+    email: 'plus@outlook.com',
+    },
+    stepKeyByStep: {
+      10: 'oauth-login',
+      13: 'platform-verify',
+    },
+  });
+
+  await router.handleStepData(10, {});
+  assert.equal(snapshot().usedMarker, null);
+
+  await router.handleStepData(13, {
+    localhostUrl: 'http://localhost:1455/auth/callback?code=abc&state=xyz',
+  });
+
+  const result = snapshot();
+  assert.deepStrictEqual(result.usedMarker, { purchaseId: 456, used: true });
+  assert.equal(result.logs.some((entry) => /已在本地标记为已用/.test(entry.message)), true);
+});
+
+test('setLuckmailPurchaseUsedState persists used map to storage.local so reload keeps it non-reusable', async () => {
+  const bundle = [
+    extractFunction('getLuckmailUsedPurchases'),
+    extractFunction('setLuckmailUsedPurchasesState'),
+    extractFunction('setLuckmailPurchaseUsedState'),
+  ].join('\n');
+
+  const factory = new Function(`
+let sessionState = {
+  luckmailUsedPurchases: { 7: true },
+};
+let persistentUpdates = [];
+let sessionUpdates = [];
+let broadcasts = [];
+function normalizeLuckmailPurchaseId(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? String(Math.floor(numeric)) : '';
 }
-function getCurrentLuckmailPurchase(state) {
-  return state.currentLuckmailPurchase;
+function normalizeLuckmailUsedPurchases(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.entries(value).reduce((result, [key, used]) => {
+    const normalizedKey = normalizeLuckmailPurchaseId(key);
+    if (normalizedKey) result[normalizedKey] = Boolean(used);
+    return result;
+  }, {});
 }
-function isHotmailProvider() {
-  return false;
+async function getState() {
+  return { ...sessionState };
 }
-async function patchHotmailAccount() {}
-function isLuckmailProvider(state) {
-  return state.mailProvider === 'luckmail-api';
+async function setPersistentSettings(updates) {
+  persistentUpdates.push(updates);
 }
-async function setLuckmailPurchaseUsedState(purchaseId, used) {
-  usedMarker = { purchaseId, used };
+async function setState(updates) {
+  sessionUpdates.push(updates);
+  sessionState = { ...sessionState, ...updates };
 }
-async function clearLuckmailRuntimeState(options) {
-  clearedOptions = options;
+function broadcastDataUpdate(updates) {
+  broadcasts.push(updates);
 }
-async function addLog(message, level) {
-  logs.push({ message, level });
-}
-function buildLocalhostCleanupPrefix() {
-  return '';
-}
-async function closeTabsByUrlPrefix() {}
-function shouldUseCustomRegistrationEmail() {
-  return false;
-}
-async function setEmailStateSilently() {}
-async function setState() {}
-function broadcastDataUpdate() {}
-function isLocalhostOAuthCallbackUrl() {
-  return true;
-}
-async function finalizePhoneActivationAfterSuccessfulFlow() {}
-async function finalizeIcloudAliasAfterSuccessfulFlow() {}
 
 ${bundle}
 
 return {
-  handleStepData,
+  setLuckmailPurchaseUsedState,
   snapshot() {
-    return { clearedOptions, usedMarker, logs };
+    return { sessionState, persistentUpdates, sessionUpdates, broadcasts };
   },
 };
 `);
 
   const api = factory();
-  await api.handleStepData(10, {
-    localhostUrl: 'http://localhost:1455/auth/callback?code=abc&state=xyz',
-  });
-
+  const result = await api.setLuckmailPurchaseUsedState(88, true);
   const snapshot = api.snapshot();
-  assert.deepStrictEqual(snapshot.usedMarker, { purchaseId: 123, used: true });
-  assert.deepStrictEqual(snapshot.clearedOptions, { clearEmail: true });
-  assert.equal(snapshot.logs.at(-1).message, '当前 LuckMail 邮箱运行态已清空，下轮将优先复用未用邮箱或重新购买邮箱。');
+
+  assert.deepStrictEqual(result, { purchaseId: 88, used: true });
+  assert.deepStrictEqual(snapshot.sessionState.luckmailUsedPurchases, { 7: true, 88: true });
+  assert.deepStrictEqual(snapshot.persistentUpdates, [
+    { luckmailUsedPurchases: { 7: true, 88: true } },
+  ]);
+  assert.deepStrictEqual(snapshot.sessionUpdates, [
+    { luckmailUsedPurchases: { 7: true, 88: true } },
+  ]);
+  assert.deepStrictEqual(snapshot.broadcasts, [
+    { luckmailUsedPurchases: { 7: true, 88: true } },
+  ]);
+});
+
+test('setLuckmailPreserveTagInfo persists tag cache to storage.local', async () => {
+  const bundle = extractFunction('setLuckmailPreserveTagInfo');
+
+  const factory = new Function(`
+let persistentUpdates = [];
+let sessionUpdates = [];
+let broadcasts = [];
+const DEFAULT_LUCKMAIL_PRESERVE_TAG_NAME = '保留';
+function normalizeLuckmailTags(tags) {
+  return (Array.isArray(tags) ? tags : []).map((tag) => ({
+    id: Number(tag?.id) || 0,
+    name: String(tag?.name || '').trim(),
+  })).filter((tag) => tag.id > 0 || tag.name);
+}
+async function setPersistentSettings(updates) {
+  persistentUpdates.push(updates);
+}
+async function setState(updates) {
+  sessionUpdates.push(updates);
+}
+function broadcastDataUpdate(updates) {
+  broadcasts.push(updates);
+}
+
+${bundle}
+
+return {
+  setLuckmailPreserveTagInfo,
+  snapshot() {
+    return { persistentUpdates, sessionUpdates, broadcasts };
+  },
+};
+`);
+
+  const api = factory();
+  const result = await api.setLuckmailPreserveTagInfo({ id: '12', name: ' 保留邮箱 ' });
+  const expected = {
+    luckmailPreserveTagId: 12,
+    luckmailPreserveTagName: '保留邮箱',
+  };
+
+  assert.deepStrictEqual(result, expected);
+  assert.deepStrictEqual(api.snapshot().persistentUpdates, [expected]);
+  assert.deepStrictEqual(api.snapshot().sessionUpdates, [expected]);
+  assert.deepStrictEqual(api.snapshot().broadcasts, [expected]);
 });

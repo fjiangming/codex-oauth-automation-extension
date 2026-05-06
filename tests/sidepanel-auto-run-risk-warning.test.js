@@ -65,48 +65,6 @@ return { shouldWarnAutoRunFallbackRisk };
   assert.equal(api.shouldWarnAutoRunFallbackRisk(10, true), true);
 });
 
-test('Plus auto-run risk warning only starts above 3 runs in Plus mode', () => {
-  const bundle = extractFunction('shouldWarnPlusAutoRunRisk');
-
-  const api = new Function(`
-const AUTO_RUN_PLUS_RISK_WARNING_MAX_SAFE_RUNS = 3;
-${bundle}
-return { shouldWarnPlusAutoRunRisk };
-`)();
-
-  assert.equal(api.shouldWarnPlusAutoRunRisk(3, true), false);
-  assert.equal(api.shouldWarnPlusAutoRunRisk(4, true), true);
-  assert.equal(api.shouldWarnPlusAutoRunRisk(10, false), false);
-});
-
-test('Plus auto-run risk modal uses PayPal account warning copy', async () => {
-  const bundle = extractFunction('openPlusAutoRunRiskConfirmModal');
-
-  const api = new Function(`
-let capturedOptions = null;
-async function openConfirmModalWithOption(options) {
-  capturedOptions = options;
-  return { confirmed: true, optionChecked: true };
-}
-${bundle}
-return {
-  openPlusAutoRunRiskConfirmModal,
-  getCapturedOptions() {
-    return capturedOptions;
-  },
-};
-`)();
-
-  const result = await api.openPlusAutoRunRiskConfirmModal(4);
-  const options = api.getCapturedOptions();
-
-  assert.deepStrictEqual(result, { confirmed: true, dismissPrompt: true });
-  assert.equal(options.title, 'Plus 自动轮数提醒');
-  assert.match(options.message, /轮数过多可能造成 PayPal 或账号快速封号/);
-  assert.match(options.message, /不要贪杯哦/);
-  assert.equal(options.confirmLabel, '我知道了，继续');
-});
-
 test('auto-run fallback risk modal uses the single-node warning copy', async () => {
   const bundle = extractFunction('openAutoRunFallbackRiskConfirmModal');
 

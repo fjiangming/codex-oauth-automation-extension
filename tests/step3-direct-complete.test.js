@@ -80,6 +80,26 @@ function inspectSignupEntryState() {
   return snapshot;
 }
 
+function isPhoneVerificationPageReady() {
+  return false;
+}
+
+function getPhoneVerificationDisplayedPhone() {
+  return '';
+}
+
+function getVerificationCodeTarget() {
+  return null;
+}
+
+function getStep4PostVerificationState() {
+  return null;
+}
+
+function isVerificationPageStillVisible() {
+  return false;
+}
+
 async function ensureSignupPasswordPageReady() {
   return { ready: true };
 }

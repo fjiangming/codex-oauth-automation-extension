@@ -73,7 +73,10 @@ test('account run history helper upgrades old records, keeps stopped items and s
   );
   assert.deepStrictEqual(record, {
     recordId: 'latest@example.com',
+    accountIdentifierType: 'email',
+    accountIdentifier: 'latest@example.com',
     email: 'latest@example.com',
+    phoneNumber: '',
     password: 'secret',
     finalStatus: 'failed',
     finishedAt: record.finishedAt,
@@ -138,6 +141,187 @@ test('account run history helper upgrades old records, keeps stopped items and s
   });
   assert.equal(normalizedStoppedRecord.failureLabel, '步骤 7 停止');
   assert.equal(normalizedStoppedRecord.failedStep, 7);
+});
+
+test('account run history helper accepts phone-only records without forcing email or password', () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: (value) => String(value || '').trim(),
+  });
+
+  const record = helpers.buildAccountRunHistoryRecord({
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    signupPhoneNumber: '+6612345',
+    password: '',
+  }, 'success');
+
+  assert.deepStrictEqual(record, {
+    recordId: 'phone:+6612345',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    email: '',
+    phoneNumber: '+6612345',
+    password: '',
+    finalStatus: 'success',
+    finishedAt: record.finishedAt,
+    retryCount: 0,
+    failureLabel: '流程完成',
+    failureDetail: '',
+    failedStep: null,
+    source: 'manual',
+    autoRunContext: null,
+    plusModeEnabled: false,
+    contributionMode: false,
+  });
+
+  const normalized = helpers.normalizeAccountRunHistoryRecord({
+    recordId: 'phone:+6612345',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+6612345',
+    phoneNumber: '+6612345',
+    finalStatus: 'failed',
+    failureDetail: '步骤 8：手机号验证码超时。',
+  });
+
+  assert.equal(normalized.recordId, 'phone:+6612345');
+  assert.equal(normalized.accountIdentifierType, 'phone');
+  assert.equal(normalized.accountIdentifier, '+6612345');
+  assert.equal(normalized.email, '');
+  assert.equal(normalized.phoneNumber, '+6612345');
+  assert.equal(normalized.password, '');
+  assert.equal(normalized.finalStatus, 'failed');
+});
+
+test('account run history merges email and phone identities from the same run', async () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  let storedHistory = [
+    {
+      recordId: 'phone:+447799342687',
+      accountIdentifierType: 'phone',
+      accountIdentifier: '+447799342687',
+      phoneNumber: '+44 7799 342687',
+      email: '',
+      password: '',
+      finalStatus: 'stopped',
+      finishedAt: '2026-04-17T04:30:00.000Z',
+      failureDetail: '步骤 2 已使用手机号，流程尚未完成。',
+    },
+    {
+      recordId: 'tmp@example.com',
+      accountIdentifierType: 'email',
+      accountIdentifier: 'tmp@example.com',
+      email: 'tmp@example.com',
+      phoneNumber: '',
+      password: 'old',
+      finalStatus: 'stopped',
+      finishedAt: '2026-04-17T04:31:00.000Z',
+      failureDetail: '步骤 2 已使用邮箱，流程尚未完成。',
+    },
+  ];
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: {
+      storage: {
+        local: {
+          get: async () => ({ accountRunHistory: storedHistory }),
+          set: async (payload) => {
+            storedHistory = payload.accountRunHistory;
+          },
+        },
+      },
+    },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: () => '',
+  });
+
+  const failedRecord = helpers.buildAccountRunHistoryRecord({
+    accountIdentifierType: 'email',
+    accountIdentifier: 'tmp@example.com',
+    email: 'tmp@example.com',
+    password: 'secret',
+    currentPhoneActivation: {
+      activationId: 'a1',
+      phoneNumber: '+44 7799 342687',
+    },
+  }, 'step9_failed', '步骤 9：手机号验证失败。');
+  assert.equal(failedRecord.accountIdentifierType, 'email');
+  assert.equal(failedRecord.accountIdentifier, 'tmp@example.com');
+  assert.equal(failedRecord.phoneNumber, '+44 7799 342687');
+
+  const successRecord = await helpers.appendAccountRunRecord('success', {
+    accountIdentifierType: 'email',
+    accountIdentifier: 'tmp@example.com',
+    email: 'tmp@example.com',
+    phoneNumber: '447799342687',
+    password: 'secret',
+    accountRunHistoryHelperBaseUrl: '',
+  });
+
+  assert.equal(successRecord.recordId, 'tmp@example.com');
+  assert.equal(successRecord.email, 'tmp@example.com');
+  assert.equal(successRecord.phoneNumber, '447799342687');
+  assert.equal(storedHistory.length, 1);
+  assert.equal(storedHistory[0].recordId, 'tmp@example.com');
+  assert.equal(storedHistory[0].finalStatus, 'success');
+});
+
+test('account run history keeps phone as primary identity when phone signup later binds email', async () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  let storedHistory = [{
+    recordId: 'phone:+447700900123',
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+447700900123',
+    phoneNumber: '+447700900123',
+    email: '',
+    finalStatus: 'stopped',
+    finishedAt: '2026-04-17T04:31:00.000Z',
+    failureDetail: '步骤 2 已使用手机号，流程尚未完成。',
+  }];
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: {
+      storage: {
+        local: {
+          get: async () => ({ accountRunHistory: storedHistory }),
+          set: async (payload) => {
+            storedHistory = payload.accountRunHistory;
+          },
+        },
+      },
+    },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: () => '',
+  });
+
+  const record = await helpers.appendAccountRunRecord('success', {
+    accountIdentifierType: 'phone',
+    accountIdentifier: '+447700900123',
+    signupPhoneNumber: '+447700900123',
+    email: 'bound@example.com',
+    password: 'secret',
+    accountRunHistoryHelperBaseUrl: '',
+  });
+
+  assert.equal(record.recordId, 'phone:+447700900123');
+  assert.equal(record.accountIdentifierType, 'phone');
+  assert.equal(record.accountIdentifier, '+447700900123');
+  assert.equal(record.email, 'bound@example.com');
+  assert.equal(record.phoneNumber, '+447700900123');
+  assert.equal(storedHistory.length, 1);
+  assert.equal(storedHistory[0].recordId, 'phone:+447700900123');
+  assert.equal(storedHistory[0].finalStatus, 'success');
 });
 
 test('account run history records preserve Plus and contribution mode flags', () => {
