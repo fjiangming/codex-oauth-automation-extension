@@ -110,6 +110,7 @@ const inputAutoSkipFailures = { disabled: false };
 const autoContinueBar = { style: { display: '' } };
 
 function setSettingsCardLocked() {}
+function setFreePhoneReuseControlsLocked() {}
 function getAutoRunLabel() { return ''; }
 function getLockedRunCountFromEmailPool() { return lockedRunCount; }
 function isCustomMailProvider() { return false; }
@@ -198,6 +199,7 @@ const inputAutoSkipFailures = { disabled: false };
 const autoContinueBar = { style: { display: '' } };
 
 function setSettingsCardLocked() {}
+function setFreePhoneReuseControlsLocked() {}
 function getAutoRunLabel() { return ''; }
 function getLockedRunCountFromEmailPool() { return 0; }
 function isCustomMailProvider() { return false; }

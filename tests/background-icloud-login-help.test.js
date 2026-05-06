@@ -2,6 +2,47 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+function extractFunctionBody(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  if (start < 0) {
+    throw new Error(`missing function ${name}`);
+  }
+
+  let parenDepth = 0;
+  let signatureEnded = false;
+  let braceStart = -1;
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === '(') {
+      parenDepth += 1;
+    } else if (ch === ')') {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        signatureEnded = true;
+      }
+    } else if (ch === '{' && signatureEnded) {
+      braceStart = i;
+      break;
+    }
+  }
+  if (braceStart < 0) {
+    throw new Error(`missing body for function ${name}`);
+  }
+
+  let depth = 0;
+  for (let i = braceStart; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(braceStart + 1, i);
+      }
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
 test('icloud login helper distinguishes auth-required errors from transient context errors', () => {
   const source = fs.readFileSync('background.js', 'utf8');
 
@@ -105,5 +146,22 @@ test('icloud login helper distinguishes auth-required errors from transient cont
     source,
     /当前网络\/上下文波动，暂无法创建新别名，已临时回退复用/,
     'icloud auto-fetch should fallback to reusable aliases when create-new fails due transient session/context issues'
+  );
+});
+
+test('icloud login helper does not redeclare safeActionLabel in transient branch', () => {
+  const source = fs.readFileSync('background.js', 'utf8');
+  const body = extractFunctionBody(source, 'withIcloudLoginHelp');
+  const declarations = body.match(/\bconst\s+safeActionLabel\b/g) || [];
+
+  assert.equal(
+    declarations.length,
+    1,
+    'withIcloudLoginHelp should declare safeActionLabel once to avoid temporal-dead-zone crashes'
+  );
+  assert.match(
+    body,
+    /const transientError = new Error\(`iCloud：\$\{safeActionLabel\}受网络\/上下文波动影响，请稍后重试。`\);/,
+    'transient context errors should use the already-initialized safeActionLabel'
   );
 });

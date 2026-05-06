@@ -252,6 +252,21 @@ function resolveSub2ApiProxyPreference(payload = {}, backgroundState = {}) {
   return SUB2API_DEFAULT_PROXY_NAME;
 }
 
+function resolveSub2ApiAccountPriority(payload = {}, backgroundState = {}) {
+  const candidate = payload.sub2apiAccountPriority !== undefined
+    ? payload.sub2apiAccountPriority
+    : backgroundState.sub2apiAccountPriority;
+  const rawValue = String(candidate ?? '').trim();
+  if (!rawValue) {
+    return SUB2API_DEFAULT_PRIORITY;
+  }
+  const numeric = Number(rawValue);
+  if (!Number.isSafeInteger(numeric) || numeric < 1) {
+    throw new Error('SUB2API 账号优先级必须是大于等于 1 的整数。');
+  }
+  return numeric;
+}
+
 function normalizeProxyId(value) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -568,6 +583,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
   const proxySelector = preferredProxyId || proxyPreference;
   const proxy = proxySelector ? await resolveSub2ApiProxy(origin, token, proxySelector) : null;
   const proxyId = normalizeProxyId(proxy?.id);
+  const accountPriority = resolveSub2ApiAccountPriority(payload, backgroundState);
   const storedGroupIds = Array.isArray(payload.sub2apiGroupIds)
     ? payload.sub2apiGroupIds
     : (Array.isArray(backgroundState.sub2apiGroupIds) ? backgroundState.sub2apiGroupIds : []);
@@ -627,7 +643,7 @@ async function step9_submitOpenAiCallback(payload = {}) {
     type: 'oauth',
     credentials,
     concurrency: SUB2API_DEFAULT_CONCURRENCY,
-    priority: SUB2API_DEFAULT_PRIORITY,
+    priority: accountPriority,
     rate_multiplier: SUB2API_DEFAULT_RATE_MULTIPLIER,
     group_ids: groupIds,
     auto_pause_on_expired: true,

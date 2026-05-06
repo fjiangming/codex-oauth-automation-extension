@@ -2367,6 +2367,20 @@ header {
   min-height: 33px;
 }
 
+.hero-sms-free-phone-cell {
+  flex-wrap: wrap;
+}
+
+.hero-sms-manual-phone-input {
+  flex: 1 1 150px;
+  min-width: 120px;
+}
+
+.hero-sms-free-phone-country {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .signup-phone-runtime-inline,
 .signup-phone-runtime-input {
   width: 100%;

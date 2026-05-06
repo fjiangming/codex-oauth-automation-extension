@@ -423,8 +423,7 @@
       }
       await addLog(`步骤 7：GPC 模式开始 OTP 验证（reference_id: ${referenceId}）...`, 'info');
       let otp = '';
-      const useLocalSmsHelper = Boolean(state?.gopayHelperLocalSmsHelperEnabled)
-        && normalizeGpcOtpChannel(state?.gopayHelperOtpChannel) === 'sms';
+      const useLocalSmsHelper = Boolean(state?.gopayHelperLocalSmsHelperEnabled);
       if (useLocalSmsHelper) {
         try {
           await addLog('步骤 7：正在从本地 SMS Helper 等待 GPC OTP...', 'info');

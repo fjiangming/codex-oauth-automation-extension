@@ -932,6 +932,65 @@ test('GPC billing reads OTP from local SMS helper when enabled', async () => {
   assert.equal(events.completed[0].step, 7);
 });
 
+test('GPC billing can read WhatsApp OTP from local helper when enabled', async () => {
+  const fetchCalls = [];
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url.startsWith('http://127.0.0.1:18767/otp')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, otp: '765432', message_id: 'wa-1' }),
+        };
+      }
+      if (url.endsWith('/api/gopay/otp')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ reference_id: 'ref_wa', challenge_id: 'challenge_wa' }),
+        };
+      }
+      if (url.endsWith('/api/gopay/pin')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ stage: 'gopay_complete' }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await executor.executePlusCheckoutBilling({
+    plusPaymentMethod: 'gpc-helper',
+    plusCheckoutSource: 'gpc-helper',
+    gopayHelperReferenceId: 'ref_wa',
+    gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+    gopayHelperPin: '654321',
+    gopayHelperCardKey: 'card_wa',
+    gopayHelperOtpChannel: 'whatsapp',
+    gopayHelperLocalSmsHelperEnabled: true,
+    gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
+    gopayHelperPhoneNumber: '+8613800138000',
+  });
+
+  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
+  assert.equal(events.states.some((state) => state.gopayHelperResolvedOtp === '765432'), true);
+  const helperUrl = new URL(fetchCalls[0].url);
+  assert.equal(helperUrl.origin + helperUrl.pathname, 'http://127.0.0.1:18767/otp');
+  assert.equal(helperUrl.searchParams.get('reference_id'), 'ref_wa');
+  assert.equal(helperUrl.searchParams.get('phone_number'), '+8613800138000');
+  assert.deepEqual(JSON.parse(fetchCalls[1].options.body), {
+    reference_id: 'ref_wa',
+    otp: '765432',
+    card_key: 'card_wa',
+  });
+  assert.equal(events.completed[0].step, 7);
+});
+
 test('GPC billing retries OTP with compatibility field after HTTP 400', async () => {
   const fetchCalls = [];
   let currentState = {

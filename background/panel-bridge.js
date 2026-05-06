@@ -293,6 +293,7 @@
           sub2apiPassword: state.sub2apiPassword,
           sub2apiGroupName: groupName,
           sub2apiDefaultProxyName: state.sub2apiDefaultProxyName,
+          sub2apiAccountPriority: state.sub2apiAccountPriority,
           logStep: 7,
         },
       }, {

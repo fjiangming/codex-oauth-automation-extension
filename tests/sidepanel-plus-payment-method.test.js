@@ -257,24 +257,20 @@ return {
   assert.equal(api.rows.rowGpcHelperCardKey.style.display, '');
   assert.equal(api.rows.rowGpcHelperPhone.style.display, '');
   assert.equal(api.rows.rowGpcHelperOtpChannel.style.display, '');
-  assert.equal(api.rows.rowGpcHelperLocalSmsEnabled.style.display, 'none');
+  assert.equal(api.rows.rowGpcHelperLocalSmsEnabled.style.display, '');
   assert.equal(api.rows.rowGpcHelperLocalSmsUrl.style.display, 'none');
   assert.match(api.plusPaymentMethodCaption.textContent, /GPC/);
 
-  api.selectGpcHelperOtpChannel.value = 'sms';
-  api.updatePlusModeUI();
-  assert.equal(api.rows.rowGpcHelperLocalSmsEnabled.style.display, '');
-  assert.equal(api.rows.rowGpcHelperLocalSmsUrl.style.display, 'none');
-
   api.inputGpcHelperLocalSmsEnabled.checked = true;
   api.updatePlusModeUI();
+  assert.equal(api.selectGpcHelperOtpChannel.value, 'whatsapp');
   assert.equal(api.rows.rowGpcHelperLocalSmsUrl.style.display, '');
 
-  api.selectGpcHelperOtpChannel.value = 'whatsapp';
+  api.selectGpcHelperOtpChannel.value = 'sms';
   api.updatePlusModeUI();
-  assert.equal(api.inputGpcHelperLocalSmsEnabled.checked, false);
-  assert.equal(api.rows.rowGpcHelperLocalSmsEnabled.style.display, 'none');
-  assert.equal(api.rows.rowGpcHelperLocalSmsUrl.style.display, 'none');
+  assert.equal(api.inputGpcHelperLocalSmsEnabled.checked, true);
+  assert.equal(api.rows.rowGpcHelperLocalSmsEnabled.style.display, '');
+  assert.equal(api.rows.rowGpcHelperLocalSmsUrl.style.display, '');
 
   api.selectPlusPaymentMethod.value = 'gopay';
   api.updatePlusModeUI();

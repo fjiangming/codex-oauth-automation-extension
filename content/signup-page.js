@@ -25,6 +25,7 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'SUBMIT_PHONE_NUMBER'
       || message.type === 'SUBMIT_PHONE_VERIFICATION_CODE'
       || message.type === 'RESEND_PHONE_VERIFICATION_CODE'
+      || message.type === 'CHECK_PHONE_RESEND_ERROR'
       || message.type === 'RETURN_TO_ADD_PHONE'
       || message.type === 'ENSURE_SIGNUP_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PHONE_ENTRY_READY'
@@ -97,6 +98,8 @@ async function handleCommand(message) {
       return await submitPhoneVerificationCodeWithProfileFallback(message.payload);
     case 'RESEND_PHONE_VERIFICATION_CODE':
       return await phoneAuthHelpers.resendPhoneVerificationCode();
+    case 'CHECK_PHONE_RESEND_ERROR':
+      return phoneAuthHelpers.checkPhoneResendError();
     case 'RETURN_TO_ADD_PHONE':
       return await phoneAuthHelpers.returnToAddPhone();
     case 'ENSURE_SIGNUP_ENTRY_READY':
@@ -2948,6 +2951,7 @@ const phoneAuthHelpers = self.MultiPagePhoneAuth?.createPhoneAuthHelpers?.({
   resendPhoneVerificationCode: async () => {
     throw new Error('Phone auth helpers are unavailable.');
   },
+  checkPhoneResendError: () => ({ hasError: false, reason: '', message: '', url: location.href }),
   returnToAddPhone: async () => {
     throw new Error('Phone auth helpers are unavailable.');
   },

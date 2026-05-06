@@ -16,6 +16,7 @@
       clearAccountRunHistory,
       deleteAccountRunHistoryRecords,
       clearAutoRunTimerAlarm,
+      clearFreeReusablePhoneActivation,
       clearLuckmailRuntimeState,
       clearStopRequest,
       closeLocalhostCallbackTabs,
@@ -103,6 +104,7 @@
       setContributionMode,
       setEmailState,
       setEmailStateSilently,
+      setFreeReusablePhoneActivation,
       setSignupPhoneState,
       setSignupPhoneStateSilently,
       setIcloudAliasPreservedState,
@@ -684,6 +686,20 @@
           return { ok: true };
         }
 
+        case 'CLEAR_FREE_REUSABLE_PHONE': {
+          if (typeof clearFreeReusablePhoneActivation !== 'function') {
+            throw new Error('白嫖复用手机号清除能力未接入。');
+          }
+          return await clearFreeReusablePhoneActivation();
+        }
+
+        case 'SET_FREE_REUSABLE_PHONE': {
+          if (typeof setFreeReusablePhoneActivation !== 'function') {
+            throw new Error('白嫖复用手机号记录能力未接入。');
+          }
+          return await setFreeReusablePhoneActivation(message.payload || {});
+        }
+
         case 'SET_CONTRIBUTION_MODE': {
           const enabled = Boolean(message.payload?.enabled);
           const state = await ensureManualInteractionAllowed(enabled ? '进入贡献模式' : '退出贡献模式');
@@ -990,6 +1006,9 @@
           }
           if (Boolean(currentState?.contributionMode) && typeof setContributionMode === 'function') {
             await setContributionMode(true);
+          }
+          if (Object.keys(stateUpdates).length > 0 && typeof broadcastDataUpdate === 'function') {
+            broadcastDataUpdate(stateUpdates);
           }
           if (modeChanged) {
             const selectedPlusPaymentMethod = getPlusPaymentMethodLabel(

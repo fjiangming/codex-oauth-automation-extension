@@ -210,6 +210,10 @@
           <button id="btn-add-sub2api-group" class="btn btn-outline btn-sm data-inline-btn" type="button">添加</button>
         </div>
       </div>
+      <div class="data-row" id="row-sub2api-account-priority" style="display:none;">
+        <span class="data-label">优先级</span>
+        <input type="number" id="input-sub2api-account-priority" class="data-input mono" value="1" min="1" step="1" />
+      </div>
       <div class="data-row" id="row-sub2api-default-proxy" style="display:none;">
         <span class="data-label">默认代理</span>
         <input type="text" id="input-sub2api-default-proxy" class="data-input" placeholder="留空则不使用代理；或填写代理名称 / ID" />
@@ -323,17 +327,17 @@
         </select>
       </div>
       <div class="data-row" id="row-gpc-helper-local-sms-enabled" style="display:none;">
-        <span class="data-label">本地短信</span>
+        <span class="data-label">本地 OTP</span>
         <label class="toggle-switch">
           <input type="checkbox" id="input-gpc-helper-local-sms-enabled" />
           <span class="toggle-switch-track" aria-hidden="true">
             <span class="toggle-switch-thumb"></span>
           </span>
         </label>
-        <span class="setting-caption">从本机 macOS Messages helper 读取 SMS OTP</span>
+        <span class="setting-caption">从本机 helper 读取当前通道 OTP，失败后回退手动输入</span>
       </div>
       <div class="data-row" id="row-gpc-helper-local-sms-url" style="display:none;">
-        <span class="data-label">短信接口</span>
+        <span class="data-label">OTP 接口</span>
         <input type="text" id="input-gpc-helper-local-sms-url" class="data-input"
           placeholder="http://127.0.0.1:18767" autocomplete="off" />
       </div>
@@ -1467,6 +1471,28 @@
                     <span class="data-unit">次</span>
                   </div>
                 </div>
+                <div id="row-free-phone-reuse-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
+                  <span class="hero-sms-settings-caption">白嫖复用</span>
+                  <div class="setting-controls hero-sms-toggle-controls">
+                    <label class="toggle-switch" for="input-free-phone-reuse-enabled" title="开启后保存首个成功接码手机号；自动复用关闭时，下次只填号码、不提交，并停止自动流程">
+                      <input type="checkbox" id="input-free-phone-reuse-enabled" />
+                      <span class="toggle-switch-track" aria-hidden="true">
+                        <span class="toggle-switch-thumb"></span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                <div id="row-free-phone-reuse-auto-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
+                  <span class="hero-sms-settings-caption">自动白嫖复用</span>
+                  <div class="setting-controls hero-sms-toggle-controls">
+                    <label class="toggle-switch" for="input-free-phone-reuse-auto-enabled" title="开启后自动将已记录手机号设为等待短信状态，自动提交并轮询验证码；最多复用 3 次">
+                      <input type="checkbox" id="input-free-phone-reuse-auto-enabled" />
+                      <span class="toggle-switch-track" aria-hidden="true">
+                        <span class="toggle-switch-thumb"></span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1486,6 +1512,14 @@
           <div id="row-hero-sms-current-code" class="hero-sms-runtime-cell" style="display:none;">
             <span class="hero-sms-runtime-key">验证码</span>
             <span id="display-hero-sms-current-code" class="data-value mono hero-sms-runtime-value">未获取</span>
+          </div>
+          <div id="row-free-reusable-phone" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2 hero-sms-free-phone-cell" style="display:none;">
+            <span class="hero-sms-runtime-key">白嫖号码</span>
+            <input type="text" id="input-free-reusable-phone" class="data-input mono hero-sms-manual-phone-input" placeholder="复用手机号" title="已记录号码会自动显示；未记录时可手动填写并记录" />
+            <span id="display-free-reusable-phone-country" class="data-value hero-sms-free-phone-country">地区：未保存</span>
+            <span id="display-free-reusable-phone" class="data-value mono hero-sms-runtime-value">未保存</span>
+            <button id="btn-save-free-reusable-phone" class="btn btn-outline btn-xs data-inline-btn hero-sms-runtime-action" type="button">记录</button>
+            <button id="btn-clear-free-reusable-phone" class="btn btn-ghost btn-xs data-inline-btn hero-sms-runtime-action" type="button">清除</button>
           </div>
           <div id="row-hero-sms-preferred-activation" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2" style="display:none;">
             <span class="hero-sms-runtime-key">优先号码</span>
