@@ -267,24 +267,51 @@ def consume_otp_record(phone: str = "", record: Optional[dict] = None) -> None:
     consumed_message_id = str((record or {}).get("message_id") or "").strip()
     consumed_rowid = int((record or {}).get("rowid") or 0)
 
-    def should_keep(item: object) -> bool:
+    def is_consumed_record(item: object) -> bool:
         if not isinstance(item, dict):
             return False
-        if wanted:
-            return not record_matches_phone(item, wanted)
-        if consumed_message_id:
-            return str(item.get("message_id") or "").strip() != consumed_message_id
-        if consumed_rowid:
-            return int(item.get("rowid") or 0) != consumed_rowid
+        if consumed_message_id and str(item.get("message_id") or "").strip() == consumed_message_id:
+            return True
+        if consumed_rowid and int(item.get("rowid") or 0) == consumed_rowid:
+            return True
         return False
+
+    def is_same_record(left: object, right: object) -> bool:
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        left_message_id = str(left.get("message_id") or "").strip()
+        right_message_id = str(right.get("message_id") or "").strip()
+        if left_message_id and right_message_id and left_message_id == right_message_id:
+            return True
+        left_rowid = int(left.get("rowid") or 0)
+        right_rowid = int(right.get("rowid") or 0)
+        if left_rowid > 0 and right_rowid > 0 and left_rowid == right_rowid:
+            return True
+        return left == right
 
     with STATE_LOCK:
         records = STATE.get("otps")
         if not isinstance(records, list):
             records = []
-        STATE["otps"] = [item for item in records if should_keep(item)]
+
+        if consumed_message_id or consumed_rowid:
+            next_records = [item for item in records if isinstance(item, dict) and not is_consumed_record(item)]
+        elif wanted:
+            removed_once = False
+            next_records = []
+            for item in records:
+                if not isinstance(item, dict):
+                    continue
+                if not removed_once and record_matches_phone(item, wanted):
+                    removed_once = True
+                    continue
+                next_records.append(item)
+        else:
+            next_records = []
+
+        STATE["otps"] = next_records
         last_otp = STATE.get("last_otp")
-        if isinstance(last_otp, dict) and not should_keep(last_otp):
+        if isinstance(last_otp, dict) and not any(is_same_record(last_otp, item) for item in STATE["otps"]):
             STATE["last_otp"] = STATE["otps"][0] if STATE["otps"] else None
 
 
