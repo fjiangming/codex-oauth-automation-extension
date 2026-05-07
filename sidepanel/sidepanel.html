@@ -573,14 +573,6 @@
               <span class="data-unit">分钟</span>
             </div>
           </div>
-          <div class="setting-group setting-group-secondary">
-            <span class="setting-caption">步间间隔</span>
-            <div class="setting-controls">
-              <input type="number" id="input-auto-step-delay-seconds" class="data-input auto-delay-input" value=""
-                min="0" max="600" step="1" title="步间延迟秒数，0 或留空则不延迟" />
-              <span class="data-unit">秒</span>
-            </div>
-          </div>
         </div>
       </div>
       <div class="data-row">
@@ -594,6 +586,30 @@
               </span>
             </label>
           </div>
+          <div class="setting-group setting-group-secondary auto-step-delay-setting">
+            <span class="setting-caption">步间间隔</span>
+            <div class="setting-controls">
+              <input type="number" id="input-auto-step-delay-seconds" class="data-input auto-delay-input" value=""
+                min="0" max="600" step="1" title="步间延迟秒数，0 或留空则不延迟" />
+              <span class="data-unit">秒</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="data-row" id="row-oauth-flow-timeout">
+        <span class="data-label">授权总超时</span>
+        <div class="data-inline setting-pair">
+          <div class="setting-group setting-group-primary oauth-flow-timeout-setting">
+            <label class="toggle-switch" for="input-oauth-flow-timeout-enabled"
+              title="关闭后不再用 5 分钟总预算重启授权链，但页面、点击、回调等本地等待超时仍会生效">
+              <input type="checkbox" id="input-oauth-flow-timeout-enabled" checked />
+              <span class="toggle-switch-track" aria-hidden="true">
+                <span class="toggle-switch-thumb"></span>
+              </span>
+              <span>启用</span>
+            </label>
+            <span class="setting-caption oauth-flow-timeout-caption">关闭后只取消 Step 7 后链总预算</span>
+          </div>
           <div class="setting-group setting-group-secondary">
             <span class="setting-caption">线程间隔</span>
             <div class="setting-controls">
@@ -602,20 +618,6 @@
               <span class="data-unit">分钟</span>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="data-row" id="row-oauth-flow-timeout">
-        <span class="data-label">授权总超时</span>
-        <div class="data-inline">
-          <label class="toggle-switch" for="input-oauth-flow-timeout-enabled"
-            title="关闭后不再用 5 分钟总预算重启授权链，但页面、点击、回调等本地等待超时仍会生效">
-            <input type="checkbox" id="input-oauth-flow-timeout-enabled" checked />
-            <span class="toggle-switch-track" aria-hidden="true">
-              <span class="toggle-switch-thumb"></span>
-            </span>
-            <span>启用</span>
-          </label>
-          <span class="setting-caption">关闭后只取消 Step 7 后链总预算</span>
         </div>
       </div>
       <div class="data-row module-divider-start" id="row-oauth-display">

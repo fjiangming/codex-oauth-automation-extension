@@ -2125,8 +2125,7 @@ header {
 }
 
 .auto-delay-setting-pair {
-  flex-wrap: wrap;
-  row-gap: 8px;
+  flex-wrap: nowrap;
 }
 
 #row-auto-delay-settings .setting-group-primary {
@@ -2145,6 +2144,17 @@ header {
 
 .auto-run-delay-setting {
   margin-left: auto !important;
+}
+
+.oauth-flow-timeout-setting {
+  gap: 8px;
+  min-width: 0;
+}
+
+.oauth-flow-timeout-caption {
+  min-width: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #row-auto-delay-settings .setting-caption {
