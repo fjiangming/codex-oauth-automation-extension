@@ -239,7 +239,7 @@ const SUB2API_STEP1_RESPONSE_TIMEOUT_MS = 90000;
 const SUB2API_STEP9_RESPONSE_TIMEOUT_MS = 120000;
 const DEFAULT_SUB2API_URL = 'https://sub2api.hisence.fun/admin/accounts';
 const DEFAULT_CODEX2API_URL = 'http://localhost:8080/admin/accounts';
-const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
 const DEFAULT_SUB2API_GROUP_NAME = 'codex';
 const DEFAULT_SUB2API_PROXY_NAME = '';
 const DEFAULT_SUB2API_ACCOUNT_PRIORITY = 1;
@@ -646,6 +646,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
+  step6CookieCleanupEnabled: false,
   phoneVerificationEnabled: false,
   freePhoneReuseEnabled: true,
   freePhoneReuseAutoEnabled: true,
@@ -2304,11 +2305,15 @@ function normalizePersistentSettingValue(key, value) {
       );
     case 'gopayHelperApiUrl':
       {
+        const legacyGpcHelperApiUrl = 'https://gpc.leftcode.xyz';
         const defaultGpcHelperApiUrl = PERSISTED_SETTING_DEFAULTS.gopayHelperApiUrl
-          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gpc.leftcode.xyz');
-        return self.GoPayUtils?.normalizeGpcHelperBaseUrl
+          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gpc.qlhazycoder.top');
+        const normalizedGpcHelperApiUrl = self.GoPayUtils?.normalizeGpcHelperBaseUrl
           ? self.GoPayUtils.normalizeGpcHelperBaseUrl(value || defaultGpcHelperApiUrl)
           : String(value || defaultGpcHelperApiUrl).trim().replace(/\/+$/g, '');
+        return normalizedGpcHelperApiUrl === legacyGpcHelperApiUrl
+          ? defaultGpcHelperApiUrl
+          : normalizedGpcHelperApiUrl;
       }
     case 'gopayHelperApiKey':
     case 'gopayHelperCardKey':
@@ -2342,6 +2347,7 @@ function normalizePersistentSettingValue(key, value) {
     case 'oauthFlowTimeoutEnabled':
     case 'gopayHelperLocalSmsHelperEnabled':
     case 'autoRunDelayEnabled':
+    case 'step6CookieCleanupEnabled':
     case 'phoneVerificationEnabled':
     case 'freePhoneReuseEnabled':
     case 'freePhoneReuseAutoEnabled':
@@ -10680,7 +10686,9 @@ const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
 });
 const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   addLog,
+  chrome,
   completeStepFromBackground,
+  getErrorMessage,
   registrationSuccessWaitMs: STEP6_REGISTRATION_SUCCESS_WAIT_MS,
   sleepWithStop,
 });
@@ -10843,7 +10851,7 @@ const stepExecutorsByKey = {
   'fill-password': (state) => step3Executor.executeStep3(state),
   'fetch-signup-code': (state) => step4Executor.executeStep4(state),
   'fill-profile': (state) => step5Executor.executeStep5(state),
-  'wait-registration-success': () => step6Executor.executeStep6(),
+  'wait-registration-success': (state) => step6Executor.executeStep6(state),
   'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
   'plus-checkout-billing': (state) => plusCheckoutBillingExecutor.executePlusCheckoutBilling(state),
   'gopay-subscription-confirm': (state) => goPayManualConfirmExecutor.executeGoPayManualConfirm(state),
@@ -11724,8 +11732,8 @@ async function rerunStep7ForStep8Recovery(options = {}) {
   }
 }
 
-async function executeStep6() {
-  return step6Executor.executeStep6();
+async function executeStep6(state = null) {
+  return step6Executor.executeStep6(state || await getState());
 }
 
 // ============================================================

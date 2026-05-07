@@ -26,35 +26,35 @@ test('GoPay utils keeps GPC helper payment method distinct', () => {
 
 test('GoPay utils builds GPC queue task and balance URLs from helper endpoints', () => {
   const api = loadGoPayUtils();
-  assert.equal(api.DEFAULT_GPC_HELPER_API_URL, 'https://gpc.leftcode.xyz');
-  assert.equal(api.normalizeGpcHelperBaseUrl(''), 'https://gpc.leftcode.xyz');
+  assert.equal(api.DEFAULT_GPC_HELPER_API_URL, 'https://gpc.qlhazycoder.top');
+  assert.equal(api.normalizeGpcHelperBaseUrl(''), 'https://gpc.qlhazycoder.top');
   assert.equal(
     api.buildGpcHelperApiUrl('', '/api/checkout/start'),
-    'https://gpc.leftcode.xyz/api/checkout/start'
+    'https://gpc.qlhazycoder.top/api/checkout/start'
   );
   assert.equal(
     api.buildGpcApiKeyBalanceUrl('http://localhost:18473/'),
     'http://localhost:18473/api/gp/balance'
   );
   assert.equal(
-    api.buildGpcCardBalanceUrl('https://gpc.leftcode.xyz/api/gp/balance'),
-    'https://gpc.leftcode.xyz/api/gp/balance'
+    api.buildGpcCardBalanceUrl('https://gpc.qlhazycoder.top/api/gp/balance'),
+    'https://gpc.qlhazycoder.top/api/gp/balance'
   );
   assert.deepEqual(
     api.buildGpcApiKeyHeaders(' gpc-123 ', { Accept: 'application/json' }),
     { Accept: 'application/json', 'X-API-Key': 'gpc-123' }
   );
   assert.equal(
-    api.buildGpcTaskCreateUrl('https://gpc.leftcode.xyz/api/checkout/start'),
-    'https://gpc.leftcode.xyz/api/gp/tasks'
+    api.buildGpcTaskCreateUrl('https://gpc.qlhazycoder.top/api/checkout/start'),
+    'https://gpc.qlhazycoder.top/api/gp/tasks'
   );
   assert.equal(
-    api.buildGpcTaskQueryUrl('https://gpc.leftcode.xyz/api/gp/tasks/task_old?card_key=old', 'task/1'),
-    'https://gpc.leftcode.xyz/api/gp/tasks/task%2F1'
+    api.buildGpcTaskQueryUrl('https://gpc.qlhazycoder.top/api/gp/tasks/task_old?card_key=old', 'task/1'),
+    'https://gpc.qlhazycoder.top/api/gp/tasks/task%2F1'
   );
   assert.equal(
-    api.buildGpcTaskActionUrl('https://gpc.leftcode.xyz/api/gp/tasks/task_old/stop', 'task_1', 'pin'),
-    'https://gpc.leftcode.xyz/api/gp/tasks/task_1/pin'
+    api.buildGpcTaskActionUrl('https://gpc.qlhazycoder.top/api/gp/tasks/task_old/stop', 'task_1', 'pin'),
+    'https://gpc.qlhazycoder.top/api/gp/tasks/task_1/pin'
   );
 });
 

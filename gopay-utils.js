@@ -4,7 +4,8 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+  const LEGACY_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
 
   function normalizePlusPaymentMethod(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
@@ -66,6 +67,9 @@
     normalized = normalized.replace(/\/api\/gp\/balance(?:\?.*)?$/i, '');
     normalized = normalized.replace(/\/api\/card\/balance(?:\?.*)?$/i, '');
     normalized = normalized.replace(/\/api\/card\/redeem-api-key(?:\?.*)?$/i, '');
+    if (normalized === LEGACY_GPC_HELPER_API_URL) {
+      return DEFAULT_GPC_HELPER_API_URL;
+    }
     return normalized || DEFAULT_GPC_HELPER_API_URL;
   }
 

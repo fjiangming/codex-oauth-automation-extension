@@ -155,7 +155,7 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
   await executor.executePlusCheckoutCreate({
     email: 'Current.Round+GPC@Example.COM',
     plusPaymentMethod: 'gpc-helper',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayPhone: '',
     gopayHelperCountryCode: '+86',
@@ -173,7 +173,7 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
     includeAccessToken: true,
   });
   assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].url, 'https://gpc.leftcode.xyz/api/gp/tasks');
+  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
   const helperPayload = JSON.parse(fetchCalls[0].options.body);
   assert.deepEqual(helperPayload, {
     access_token: 'session-access-token',
@@ -233,7 +233,7 @@ test('GPC checkout forwards selected SMS OTP channel', async () => {
   await executor.executePlusCheckoutCreate({
     email: 'sms@example.com',
     plusPaymentMethod: 'gpc-helper',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayHelperCountryCode: '+86',
     gopayHelperPin: '123456',
@@ -285,7 +285,7 @@ test('GPC checkout surfaces unified queue API errors', async () => {
     () => executor.executePlusCheckoutCreate({
       email: 'paid@example.com',
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       gopayHelperPhoneNumber: '+8613800138000',
       gopayHelperCountryCode: '+86',
@@ -326,7 +326,7 @@ test('GPC checkout does not fall back to browser GoPay phone fields', async () =
   await assert.rejects(
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       email: 'helper-phone-test@example.com',
       gopayPhone: '+8613800138000',
@@ -366,7 +366,7 @@ test('GPC checkout rejects missing API Key before calling helper API', async () 
   await assert.rejects(
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       email: 'missing-card@example.com',
       gopayHelperPhoneNumber: '+8613800138000',

@@ -833,7 +833,7 @@ test('GPC billing polls queue task, submits WhatsApp OTP then PIN, and waits unt
     getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_123') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_123') {
         pollCount += 1;
         if (pollCount === 1) {
           return {
@@ -877,7 +877,7 @@ test('GPC billing polls queue task, submits WhatsApp OTP then PIN, and waits unt
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_123',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/api/gp/tasks/task_old/otp',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/api/gp/tasks/task_old/otp',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_billing_123',
   });
@@ -893,7 +893,7 @@ test('GPC billing polls queue task, submits WhatsApp OTP then PIN, and waits unt
 
   await run;
 
-  assert.equal(fetchCalls[0].url, 'https://gpc.leftcode.xyz/api/gp/tasks/task_123');
+  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/tasks/task_123');
   assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_billing_123');
   const otpCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_123/otp'));
   const pinCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_123/pin'));
@@ -923,7 +923,7 @@ test('GPC billing reads SMS OTP from local helper for sms_otp_wait', async () =>
           json: async () => ({ ok: true, otp: '654321', message_id: 'sms-1' }),
         };
       }
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_sms') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_sms') {
         pollCount += 1;
         if (pollCount === 1) {
           return {
@@ -967,7 +967,7 @@ test('GPC billing reads SMS OTP from local helper for sms_otp_wait', async () =>
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_sms',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_sms',
     gopayHelperOtpChannel: 'sms',
@@ -1008,7 +1008,7 @@ test('GPC billing can read WhatsApp OTP from local helper when enabled', async (
           json: async () => ({ ok: true, otp: '765432', message_id: 'wa-1' }),
         };
       }
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_wa') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_wa') {
         pollCount += 1;
         if (pollCount === 1) {
           return {
@@ -1052,7 +1052,7 @@ test('GPC billing can read WhatsApp OTP from local helper when enabled', async (
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_wa',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_wa',
     gopayHelperOtpChannel: 'whatsapp',
@@ -1088,8 +1088,8 @@ test('GPC billing helper mode does not open OTP dialog when helper has no code a
           json: async () => ({ ok: true, status: 'waiting', otp: '', message: '未查询到验证码' }),
         };
       }
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_timeout') {
-        const queryCount = fetchCalls.filter((call) => call.url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_timeout').length;
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_timeout') {
+        const queryCount = fetchCalls.filter((call) => call.url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_timeout').length;
         return {
           ok: true,
           status: 200,
@@ -1118,7 +1118,7 @@ test('GPC billing helper mode does not open OTP dialog when helper has no code a
       plusPaymentMethod: 'gpc-helper',
       plusCheckoutSource: 'gpc-helper',
       gopayHelperTaskId: 'task_timeout',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       gopayHelperPin: '654321',
       gopayHelperApiKey: 'gpc_timeout',
       gopayHelperOtpChannel: 'whatsapp',
@@ -1153,7 +1153,7 @@ test('GPC billing helper mode requests newer OTP after invalid OTP error', async
           json: async () => ({ ok: true, otp: helperCallCount === 1 ? '111111' : '222222', message_id: `sms-${helperCallCount}` }),
         };
       }
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_retry') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_retry') {
         taskPollCount += 1;
         if (taskPollCount === 1) {
           return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'active', remote_stage: 'sms_otp_wait', api_waiting_for: 'otp' }) };
@@ -1181,7 +1181,7 @@ test('GPC billing helper mode requests newer OTP after invalid OTP error', async
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_retry',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_retry',
     gopayHelperOtpChannel: 'sms',
@@ -1222,7 +1222,7 @@ test('GPC billing manual OTP wrong input opens next dialog only after previous o
     getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_manual_retry') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_manual_retry') {
         pollCount += 1;
         if (pollCount === 1) {
           return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }) };
@@ -1263,7 +1263,7 @@ test('GPC billing manual OTP wrong input opens next dialog only after previous o
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_manual_retry',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_manual_retry',
   });
@@ -1297,7 +1297,7 @@ test('GPC billing manual OTP cancel stops task and ends current round', async ()
     getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_cancel') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_cancel') {
         return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_cancel', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }) };
       }
       if (url.endsWith('/api/gp/tasks/task_cancel/stop')) {
@@ -1311,7 +1311,7 @@ test('GPC billing manual OTP cancel stops task and ends current round', async ()
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
     gopayHelperTaskId: 'task_cancel',
-    gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
     gopayHelperApiKey: 'gpc_cancel',
   });
@@ -1340,7 +1340,7 @@ test('GPC billing PIN failure ends task without retrying PIN', async () => {
     stateByFrame: {},
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_pin_failed') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_pin_failed') {
         pollCount += 1;
         if (pollCount === 1) {
           return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_pin_failed', status: 'otp_ready', status_text: '等待 PIN', remote_stage: 'otp_ready', api_waiting_for: 'pin' }) };
@@ -1359,7 +1359,7 @@ test('GPC billing PIN failure ends task without retrying PIN', async () => {
       plusPaymentMethod: 'gpc-helper',
       plusCheckoutSource: 'gpc-helper',
       gopayHelperTaskId: 'task_pin_failed',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       gopayHelperPin: '654321',
       gopayHelperApiKey: 'gpc_pin_failed',
     }),
@@ -1378,7 +1378,7 @@ for (const terminalStatus of ['failed', 'expired', 'discarded']) {
       stateByFrame: {},
       fetchImpl: async (url, options = {}) => {
         fetchCalls.push({ url, options });
-        if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_bad') {
+        if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_bad') {
           return {
             ok: true,
             status: 200,
@@ -1399,7 +1399,7 @@ for (const terminalStatus of ['failed', 'expired', 'discarded']) {
         plusPaymentMethod: 'gpc-helper',
         plusCheckoutSource: 'gpc-helper',
         gopayHelperTaskId: 'task_bad',
-        gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+        gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
         gopayHelperPin: '654321',
         gopayHelperApiKey: 'gpc_bad',
       }),
@@ -1417,7 +1417,7 @@ test('GPC billing stops task best-effort when flow is interrupted before termina
     stateByFrame: {},
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url === 'https://gpc.leftcode.xyz/api/gp/tasks/task_stop') {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_stop') {
         return {
           ok: false,
           status: 500,
@@ -1440,7 +1440,7 @@ test('GPC billing stops task best-effort when flow is interrupted before termina
       plusPaymentMethod: 'gpc-helper',
       plusCheckoutSource: 'gpc-helper',
       gopayHelperTaskId: 'task_stop',
-      gopayHelperApiUrl: 'https://gpc.leftcode.xyz/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       gopayHelperPin: '654321',
       gopayHelperApiKey: 'gpc_stop',
     }),

@@ -7,7 +7,7 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
 
   function createPlusCheckoutCreateExecutor(deps = {}) {
     const {

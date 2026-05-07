@@ -264,7 +264,7 @@
             <option value="gopay">GoPay</option>
             <option value="gpc-helper">GPC</option>
           </select>
-          <button id="btn-gpc-card-key-purchase" class="btn btn-outline btn-sm data-inline-btn" type="button" style="display:none;">获取 API Key</button>
+          <button id="btn-gpc-card-key-purchase" class="btn btn-outline btn-sm data-inline-btn" type="button" style="display:none;">购买卡密</button>
           <span class="setting-caption" id="plus-payment-method-caption">PayPal 订阅链路</span>
         </div>
       </div>
@@ -285,8 +285,11 @@
       </div>
       <div class="data-row" id="row-gpc-helper-api" style="display:none;">
         <span class="data-label">GPC API</span>
-        <input type="text" id="input-gpc-helper-api" class="data-input"
-          placeholder="https://gpc.leftcode.xyz" autocomplete="off" />
+        <div class="data-inline">
+          <input type="text" id="input-gpc-helper-api" class="data-input gpc-helper-api-input"
+            value="https://gpc.qlhazycoder.top/" placeholder="https://gpc.qlhazycoder.top/" autocomplete="off" readonly />
+          <button id="btn-gpc-helper-convert-api-key" class="btn btn-outline btn-sm data-inline-btn" type="button">转换 API Key</button>
+        </div>
       </div>
       <div class="data-row" id="row-gpc-helper-card-key" style="display:none;">
         <span class="data-label">GPC API Key</span>
@@ -545,9 +548,19 @@
         </div>
       </div>
       <div class="data-row module-divider-start" id="row-auto-delay-settings">
-        <span class="data-label">延迟</span>
-        <div class="data-inline setting-pair">
-          <div class="setting-group setting-group-primary">
+        <span class="data-label">第六步</span>
+        <div class="data-inline setting-pair auto-delay-setting-pair">
+          <div class="setting-group setting-group-primary step6-cookie-cleanup-setting">
+            <span class="setting-caption setting-caption-left">清 Cookies</span>
+            <label class="toggle-switch" for="input-step6-cookie-cleanup-enabled">
+              <input type="checkbox" id="input-step6-cookie-cleanup-enabled" />
+              <span class="toggle-switch-track" aria-hidden="true">
+                <span class="toggle-switch-thumb"></span>
+              </span>
+            </label>
+          </div>
+          <div class="setting-group setting-group-secondary auto-run-delay-setting">
+            <span class="setting-caption">延迟</span>
             <label class="toggle-switch" for="input-auto-delay-enabled">
               <input type="checkbox" id="input-auto-delay-enabled" />
               <span class="toggle-switch-track" aria-hidden="true">

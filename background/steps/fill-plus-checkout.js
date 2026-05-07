@@ -10,7 +10,7 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
   const GPC_TASK_POLL_INTERVAL_MS = 3000;
   const PAYMENT_METHOD_CONFIGS = {
     [PLUS_PAYMENT_METHOD_PAYPAL]: {

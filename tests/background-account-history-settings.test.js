@@ -159,7 +159,7 @@ const self = {
 };
 const PERSISTED_SETTING_DEFAULTS = {
   autoStepDelaySeconds: null,
-  gopayHelperApiUrl: 'https://gpc.leftcode.xyz',
+  gopayHelperApiUrl: 'https://gpc.qlhazycoder.top',
   mailProvider: '163',
 };
 function normalizePanelMode(value) { return value === 'sub2api' ? 'sub2api' : (value === 'codex2api' ? 'codex2api' : 'cpa'); }
@@ -194,18 +194,18 @@ return {
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'paypal'), 'paypal');
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'unknown'), 'paypal');
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.leftcode.xyz/api/checkout/start '),
-    'https://gpc.leftcode.xyz'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/checkout/start '),
+    'https://gpc.qlhazycoder.top'
   );
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.leftcode.xyz/api/gp/tasks/task_1/pin '),
-    'https://gpc.leftcode.xyz'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/tasks/task_1/pin '),
+    'https://gpc.qlhazycoder.top'
   );
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.leftcode.xyz/api/gp/balance '),
-    'https://gpc.leftcode.xyz'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/balance '),
+    'https://gpc.qlhazycoder.top'
   );
-  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gpc.leftcode.xyz');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gpc.qlhazycoder.top');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperApiKey', ' gpc-123 '), 'gpc-123');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperCountryCode', ' 86 '), '+86');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneNumber', ' +86 138-0013-8000 '), '+8613800138000');

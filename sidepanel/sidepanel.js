@@ -187,6 +187,7 @@ const payPalAccountMenu = document.getElementById('paypal-account-menu');
 const btnAddPayPalAccount = document.getElementById('btn-add-paypal-account');
 const rowGpcHelperApi = document.getElementById('row-gpc-helper-api');
 const inputGpcHelperApi = document.getElementById('input-gpc-helper-api');
+const btnGpcHelperConvertApiKey = document.getElementById('btn-gpc-helper-convert-api-key');
 const rowGpcHelperCardKey = document.getElementById('row-gpc-helper-card-key');
 const inputGpcHelperCardKey = document.getElementById('input-gpc-helper-card-key');
 const btnToggleGpcHelperCardKey = document.getElementById('btn-toggle-gpc-helper-card-key');
@@ -364,6 +365,7 @@ const btnCfDomainMode = document.getElementById('btn-cf-domain-mode');
 const inputRunCount = document.getElementById('input-run-count');
 const inputAutoSkipFailures = document.getElementById('input-auto-skip-failures');
 const inputAutoSkipFailuresThreadIntervalMinutes = document.getElementById('input-auto-skip-failures-thread-interval-minutes');
+const inputStep6CookieCleanupEnabled = document.getElementById('input-step6-cookie-cleanup-enabled');
 const inputAutoDelayEnabled = document.getElementById('input-auto-delay-enabled');
 const inputAutoDelayMinutes = document.getElementById('input-auto-delay-minutes');
 const inputAutoStepDelaySeconds = document.getElementById('input-auto-step-delay-seconds');
@@ -496,7 +498,8 @@ const stepsList = document.querySelector('.steps-list');
 const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
 const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
 const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+const GPC_HELPER_PORTAL_URL = 'https://gpc.qlhazycoder.top/';
 const DEFAULT_PLUS_PAYMENT_METHOD = PLUS_PAYMENT_METHOD_PAYPAL;
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
@@ -2695,7 +2698,7 @@ function applyCloudflareTempEmailSettingsState(state = {}) {
 function collectSettingsPayload() {
   const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
     ? DEFAULT_GPC_HELPER_API_URL
-    : 'https://gpc.leftcode.xyz';
+    : 'https://gpc.qlhazycoder.top';
   const { domains, activeDomain } = getCloudflareDomainsFromState();
   const selectedCloudflareDomain = normalizeCloudflareDomainValue(
     !cloudflareDomainEditMode ? selectCfDomain.value : activeDomain
@@ -3283,10 +3286,8 @@ function collectSettingsPayload() {
         ? String(inputGoPayPin.value || '')
         : String(latestState?.gopayPin || '')),
     gopayHelperApiUrl: window.GoPayUtils?.normalizeGpcHelperBaseUrl
-      ? window.GoPayUtils.normalizeGpcHelperBaseUrl(typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi ? inputGpcHelperApi.value : (latestState?.gopayHelperApiUrl || defaultGpcHelperApiUrl))
-      : (typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi
-        ? String(inputGpcHelperApi.value || defaultGpcHelperApiUrl).trim().replace(/\/+$/g, '')
-        : String(latestState?.gopayHelperApiUrl || defaultGpcHelperApiUrl).trim()),
+      ? window.GoPayUtils.normalizeGpcHelperBaseUrl(defaultGpcHelperApiUrl)
+      : String(defaultGpcHelperApiUrl).trim().replace(/\/+$/g, ''),
     gopayHelperApiKey: typeof inputGpcHelperCardKey !== 'undefined' && inputGpcHelperCardKey
       ? String(inputGpcHelperCardKey.value || '').trim()
       : String(latestState?.gopayHelperApiKey || latestState?.gopayHelperCardKey || '').trim(),
@@ -3358,6 +3359,9 @@ function collectSettingsPayload() {
     cloudflareTempEmailDomains: tempEmailDomains,
     autoRunSkipFailures: inputAutoSkipFailures.checked,
     autoRunFallbackThreadIntervalMinutes: normalizeAutoRunThreadIntervalMinutes(inputAutoSkipFailuresThreadIntervalMinutes.value),
+    step6CookieCleanupEnabled: typeof inputStep6CookieCleanupEnabled !== 'undefined' && inputStep6CookieCleanupEnabled
+      ? Boolean(inputStep6CookieCleanupEnabled.checked)
+      : false,
     autoRunDelayEnabled: inputAutoDelayEnabled.checked,
     autoRunDelayMinutes: normalizeAutoDelayMinutes(inputAutoDelayMinutes.value),
     autoStepDelaySeconds: normalizeAutoStepDelaySeconds(inputAutoStepDelaySeconds.value),
@@ -7922,8 +7926,8 @@ function applySettingsState(state) {
   if (typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi) {
     const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
       ? DEFAULT_GPC_HELPER_API_URL
-      : 'https://gpc.leftcode.xyz';
-    inputGpcHelperApi.value = state?.gopayHelperApiUrl || defaultGpcHelperApiUrl;
+      : 'https://gpc.qlhazycoder.top';
+    inputGpcHelperApi.value = `${defaultGpcHelperApiUrl.replace(/\/+$/g, '')}/`;
   }
   if (typeof inputGpcHelperCardKey !== 'undefined' && inputGpcHelperCardKey) {
     inputGpcHelperCardKey.value = state?.gopayHelperApiKey || state?.gopayHelperCardKey || '';
@@ -8169,6 +8173,9 @@ function applySettingsState(state) {
   setCloudflareDomainEditMode(false, { clearInput: true });
   inputAutoSkipFailures.checked = Boolean(state?.autoRunSkipFailures);
   inputAutoSkipFailuresThreadIntervalMinutes.value = String(normalizeAutoRunThreadIntervalMinutes(state?.autoRunFallbackThreadIntervalMinutes));
+  if (typeof inputStep6CookieCleanupEnabled !== 'undefined' && inputStep6CookieCleanupEnabled) {
+    inputStep6CookieCleanupEnabled.checked = Boolean(state?.step6CookieCleanupEnabled);
+  }
   inputAutoDelayEnabled.checked = Boolean(state?.autoRunDelayEnabled);
   inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(state?.autoRunDelayMinutes));
   inputAutoStepDelaySeconds.value = formatAutoStepDelayInputValue(state?.autoStepDelaySeconds);
@@ -11336,13 +11343,17 @@ btnGpcCardKeyPurchase?.addEventListener('click', () => {
   openExternalUrl('https://pay.ldxp.cn/shop/gpc');
 });
 
+btnGpcHelperConvertApiKey?.addEventListener('click', () => {
+  openExternalUrl(GPC_HELPER_PORTAL_URL);
+});
+
 btnGpcHelperBalance?.addEventListener('click', async () => {
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'REFRESH_GPC_CARD_BALANCE',
       source: 'sidepanel',
       payload: {
-        gopayHelperApiUrl: inputGpcHelperApi?.value || DEFAULT_GPC_HELPER_API_URL,
+        gopayHelperApiUrl: DEFAULT_GPC_HELPER_API_URL,
         gopayHelperApiKey: inputGpcHelperCardKey?.value || '',
         gopayHelperCountryCode: selectGpcHelperCountryCode?.value || '+86',
         reason: 'manual',
@@ -12273,6 +12284,11 @@ inputAutoSkipFailuresThreadIntervalMinutes.addEventListener('blur', () => {
 
 inputAutoDelayEnabled.addEventListener('change', () => {
   updateAutoDelayInputState();
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputStep6CookieCleanupEnabled?.addEventListener('change', () => {
   markSettingsDirty(true);
   saveSettings({ silent: true }).catch(() => { });
 });
@@ -13396,6 +13412,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.autoRunDelayEnabled !== undefined) {
         inputAutoDelayEnabled.checked = Boolean(message.payload.autoRunDelayEnabled);
         updateAutoDelayInputState();
+      }
+      if (
+        message.payload.step6CookieCleanupEnabled !== undefined
+        && typeof inputStep6CookieCleanupEnabled !== 'undefined'
+        && inputStep6CookieCleanupEnabled
+      ) {
+        inputStep6CookieCleanupEnabled.checked = Boolean(message.payload.step6CookieCleanupEnabled);
       }
       if (message.payload.autoRunDelayMinutes !== undefined) {
         inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(message.payload.autoRunDelayMinutes));
