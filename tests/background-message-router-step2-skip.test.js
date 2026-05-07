@@ -44,6 +44,9 @@ function createRouter(overrides = {}) {
     clearStopRequest: () => {},
     closeLocalhostCallbackTabs: async () => {},
     closeTabsByUrlPrefix: async () => {},
+    completeStepFromBackground: async (step, payload) => {
+      events.notifyCompletions.push({ step, payload, via: 'completeStepFromBackground' });
+    },
     deleteHotmailAccount: async () => {},
     deleteHotmailAccounts: async () => {},
     deleteIcloudAlias: async () => {},
@@ -540,7 +543,7 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
   const state = {
     plusPaymentMethod: 'gpc-helper',
     gopayHelperApiUrl: 'http://localhost:18473/',
-    gopayHelperCardKey: 'state_card',
+    gopayHelperApiKey: 'state_api_key',
   };
   const { router, events } = createRouter({ state });
 
@@ -548,7 +551,7 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
     type: 'REFRESH_GPC_CARD_BALANCE',
     source: 'sidepanel',
     payload: {
-      gopayHelperCardKey: 'payload_card',
+      gopayHelperApiKey: 'payload_api_key',
       reason: 'manual',
     },
   }, {});
@@ -556,6 +559,6 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
   assert.deepStrictEqual(response, { ok: true, balance: '余额 3' });
   assert.equal(events.balanceRefreshes.length, 1);
   assert.equal(events.balanceRefreshes[0].state.gopayHelperApiUrl, 'http://localhost:18473/');
-  assert.equal(events.balanceRefreshes[0].state.gopayHelperCardKey, 'payload_card');
+  assert.equal(events.balanceRefreshes[0].state.gopayHelperApiKey, 'payload_api_key');
   assert.deepStrictEqual(events.balanceRefreshes[0].options, { reason: 'manual' });
 });

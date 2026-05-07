@@ -4,7 +4,8 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gopay.hwork.pro';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+  const LEGACY_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
 
   function normalizePlusPaymentMethod(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
@@ -62,7 +63,13 @@
     normalized = normalized.replace(/\/+$/g, '');
     normalized = normalized.replace(/\/api\/checkout\/start$/i, '');
     normalized = normalized.replace(/\/api\/gopay\/(?:otp|pin)$/i, '');
+    normalized = normalized.replace(/\/api\/gp\/tasks(?:\/[^/?#]+)?(?:\/(?:otp|pin|stop))?(?:\?.*)?$/i, '');
+    normalized = normalized.replace(/\/api\/gp\/balance(?:\?.*)?$/i, '');
     normalized = normalized.replace(/\/api\/card\/balance(?:\?.*)?$/i, '');
+    normalized = normalized.replace(/\/api\/card\/redeem-api-key(?:\?.*)?$/i, '');
+    if (normalized === LEGACY_GPC_HELPER_API_URL) {
+      return DEFAULT_GPC_HELPER_API_URL;
+    }
     return normalized || DEFAULT_GPC_HELPER_API_URL;
   }
 
@@ -75,12 +82,85 @@
     return `${baseUrl}${normalizedPath}`;
   }
 
-  function buildGpcCardBalanceUrl(apiUrl = '', cardKey = '') {
-    const endpoint = buildGpcHelperApiUrl(apiUrl, '/api/card/balance');
-    if (!endpoint) {
+  function buildGpcApiKeyBalanceUrl(apiUrl = '') {
+    return buildGpcHelperApiUrl(apiUrl, '/api/gp/balance');
+  }
+
+  function buildGpcCardBalanceUrl(apiUrl = '') {
+    return buildGpcApiKeyBalanceUrl(apiUrl);
+  }
+
+  function buildGpcApiKeyHeaders(apiKey = '', extraHeaders = {}) {
+    const headers = {
+      ...(extraHeaders && typeof extraHeaders === 'object' ? extraHeaders : {}),
+    };
+    const normalizedApiKey = String(apiKey || '').trim();
+    if (normalizedApiKey) {
+      headers['X-API-Key'] = normalizedApiKey;
+    }
+    return headers;
+  }
+
+  function buildGpcTaskCreateUrl(apiUrl = '') {
+    return buildGpcHelperApiUrl(apiUrl, '/api/gp/tasks');
+  }
+
+  function normalizeGpcTaskId(value = '') {
+    return String(value || '').trim();
+  }
+
+  function buildGpcTaskQueryUrl(apiUrl = '', taskId = '') {
+    const normalizedTaskId = normalizeGpcTaskId(taskId);
+    return buildGpcHelperApiUrl(apiUrl, `/api/gp/tasks/${encodeURIComponent(normalizedTaskId)}`);
+  }
+
+  function buildGpcTaskActionUrl(apiUrl = '', taskId = '', action = '') {
+    const normalizedTaskId = normalizeGpcTaskId(taskId);
+    const normalizedAction = String(action || '').trim().replace(/^\/+|\/+$/g, '');
+    return buildGpcHelperApiUrl(apiUrl, `/api/gp/tasks/${encodeURIComponent(normalizedTaskId)}/${normalizedAction}`);
+  }
+
+  function unwrapGpcResponse(payload = {}) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+    const hasUnifiedShape = Object.prototype.hasOwnProperty.call(payload, 'data')
+      && (
+        Object.prototype.hasOwnProperty.call(payload, 'code')
+        || Object.prototype.hasOwnProperty.call(payload, 'message')
+      );
+    return hasUnifiedShape ? (payload.data ?? {}) : payload;
+  }
+
+  function isGpcUnifiedResponseOk(payload = {}) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(payload, 'code')) {
+      return payload.ok !== false;
+    }
+    const code = Number(payload.code);
+    if (Number.isFinite(code)) {
+      return code >= 200 && code < 300;
+    }
+    return String(payload.code || '').trim() === '200';
+  }
+
+  function formatGpcErrorField(field) {
+    if (field === undefined || field === null) {
       return '';
     }
-    return `${endpoint}?card_key=${encodeURIComponent(String(cardKey || '').trim())}`;
+    if (typeof field === 'string') {
+      return field.trim();
+    }
+    if (typeof field !== 'object') {
+      return String(field).trim();
+    }
+    const key = Array.isArray(field.loc)
+      ? field.loc.join('.')
+      : String(field.field || field.path || field.name || field.param || '').trim();
+    const message = String(field.msg || field.message || field.error || field.detail || field.reason || '').trim();
+    return [key, message].filter(Boolean).join(': ') || JSON.stringify(field);
   }
 
   function extractGpcResponseErrorDetail(payload = {}, status = 0) {
@@ -91,6 +171,27 @@
     const payloadText = JSON.stringify(payload).toLowerCase();
     if (/account\s+already\s+linked/i.test(payloadText)) {
       return 'GOPAY已经绑了订阅，需要手动解绑';
+    }
+
+    const data = payload.data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const nestedDetail = data.detail ?? data.error ?? data.reason;
+      if (nestedDetail !== undefined && nestedDetail !== null && String(nestedDetail).trim()) {
+        const nestedText = String(nestedDetail).trim();
+        return /account\s+already\s+linked/i.test(nestedText)
+          ? 'GOPAY已经绑了订阅，需要手动解绑'
+          : nestedText;
+      }
+      const fields = data.fields ?? data.errors;
+      if (Array.isArray(fields) && fields.length > 0) {
+        const formatted = fields
+          .map(formatGpcErrorField)
+          .filter(Boolean)
+          .join('; ');
+        if (formatted) {
+          return formatted;
+        }
+      }
     }
 
     const direct = payload.detail
@@ -136,7 +237,6 @@
     const payload = {
       reference_id: String(input.reference_id ?? input.referenceId ?? '').trim(),
       otp: normalizeGoPayOtp(input.otp ?? input.code ?? ''),
-      card_key: String(input.card_key ?? input.cardKey ?? '').trim(),
     };
     const flowId = String(input.flow_id ?? input.flowId ?? '').trim();
     const gopayGuid = String(input.gopay_guid ?? input.gopayGuid ?? '').trim();
@@ -158,7 +258,6 @@
       challenge_id: String(input.challenge_id ?? input.challengeId ?? '').trim(),
       gopay_guid: String(input.gopay_guid ?? input.gopayGuid ?? '').trim(),
       pin: normalizeGoPayPin(input.pin ?? ''),
-      card_key: String(input.card_key ?? input.cardKey ?? '').trim(),
     };
     const flowId = String(input.flow_id ?? input.flowId ?? '').trim();
     const redirectUrl = String(input.redirect_url ?? input.redirectUrl ?? '').trim();
@@ -172,25 +271,45 @@
     return { ...payload, challengeId: payload.challenge_id };
   }
 
+  function buildGpcTaskOtpPayload(input = {}) {
+    return {
+      otp: normalizeGoPayOtp(input.otp ?? input.code ?? ''),
+    };
+  }
+
+  function buildGpcTaskPinPayload(input = {}) {
+    return {
+      pin: normalizeGoPayPin(input.pin ?? ''),
+    };
+  }
+
   function formatGpcBalancePayload(payload = {}) {
-    if (!payload || typeof payload !== 'object') {
+    const data = unwrapGpcResponse(payload);
+    if (!data || typeof data !== 'object') {
       return '';
     }
     const candidates = [
-      payload.remaining_uses,
-      payload.remainingUses,
-      payload.balance,
-      payload.remaining,
-      payload.uses,
-      payload.available_uses,
-      payload.availableUses,
+      data.remaining_uses,
+      data.remainingUses,
+      data.balance,
+      data.remaining,
+      data.uses,
+      data.available_uses,
+      data.availableUses,
     ];
     const firstValue = candidates.find((value) => value !== undefined && value !== null && String(value).trim() !== '');
-    const status = String(payload.card_status || payload.cardStatus || payload.status || '').trim();
-    const flowId = String(payload.flow_id || payload.flowId || '').trim();
+    const totalUses = data.total_uses ?? data.totalUses;
+    const usedUses = data.used_uses ?? data.usedUses;
+    const status = String(data.status || data.card_status || data.cardStatus || '').trim();
+    const flowId = String(data.flow_id || data.flowId || '').trim();
     const parts = [];
     if (firstValue !== undefined) {
-      parts.push(`余额 ${firstValue}`);
+      parts.push(totalUses !== undefined && totalUses !== null && String(totalUses).trim() !== ''
+        ? `余额 ${firstValue}/${totalUses}`
+        : `余额 ${firstValue}`);
+    }
+    if (usedUses !== undefined && usedUses !== null && String(usedUses).trim() !== '') {
+      parts.push(`已用 ${usedUses}`);
     }
     if (status) {
       parts.push(`状态 ${status}`);
@@ -208,14 +327,23 @@
     PLUS_PAYMENT_METHOD_GOPAY,
     PLUS_PAYMENT_METHOD_PAYPAL,
     buildGpcCardBalanceUrl,
+    buildGpcApiKeyBalanceUrl,
+    buildGpcApiKeyHeaders,
     buildGpcHelperApiUrl,
     buildGpcOtpPayload,
     buildGpcOtpRetryPayload,
     buildGpcPinPayload,
     buildGpcPinRetryPayload,
+    buildGpcTaskActionUrl,
+    buildGpcTaskCreateUrl,
+    buildGpcTaskOtpPayload,
+    buildGpcTaskPinPayload,
+    buildGpcTaskQueryUrl,
     extractGpcResponseErrorDetail,
     formatGpcBalancePayload,
+    isGpcUnifiedResponseOk,
     normalizeGpcHelperBaseUrl,
+    normalizeGpcTaskId,
     normalizeGoPayCountryCode,
     normalizeGoPayPhone,
     normalizeGoPayPhoneForCountry,
@@ -223,5 +351,6 @@
     normalizeGoPayPin,
     normalizeGpcOtpChannel,
     normalizePlusPaymentMethod,
+    unwrapGpcResponse,
   };
 });

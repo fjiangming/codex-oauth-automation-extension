@@ -84,6 +84,7 @@ function createExecutorHarness({
   getState = null,
   markCurrentRegistrationAccountUsed = async () => {},
   probeIpProxyExit = null,
+  onSetState = null,
   submitRedirectUrl = 'https://www.paypal.com/checkoutnow',
 }) {
   const api = loadPlusCheckoutBillingModule();
@@ -93,6 +94,7 @@ function createExecutorHarness({
     injectedAllFrames: false,
     logs: [],
     messages: [],
+    sleeps: [],
     states: [],
     waitedUrls: [],
   };
@@ -158,8 +160,13 @@ function createExecutorHarness({
     getTabId: async () => null,
     isTabAlive: async () => false,
     markCurrentRegistrationAccountUsed,
-    setState: async (updates) => events.states.push(updates),
-    sleepWithStop: async () => {},
+    setState: async (updates) => {
+      events.states.push(updates);
+      if (typeof onSetState === 'function') {
+        await onSetState(updates, events);
+      }
+    },
+    sleepWithStop: async (ms) => events.sleeps.push(ms),
     waitForTabCompleteUntilStopped: async () => checkoutTab,
     waitForTabUrlMatchUntilStopped: async (tabId, matcher) => {
       events.waitedUrls.push({ tabId });
@@ -798,30 +805,68 @@ test('Plus checkout billing reports when the payment iframe exists but cannot re
   );
 });
 
-test('GPC billing normalizes API URL and submits OTP then PIN with card_key and flow_id', async () => {
+
+function createGpcTaskResponse(data) {
+  return {
+    code: 200,
+    message: 'ok',
+    data: {
+      task_id: 'task_123',
+      phone_mode: 'manual',
+      status_text: data.status === 'completed' ? '充值完成' : (data.status === 'otp_ready' ? '等待 PIN' : '处理中'),
+      api_input_deadline_at: data.api_input_deadline_at ?? new Date(Date.now() + 60000).toISOString(),
+      ...data,
+    },
+  };
+}
+
+test('GPC billing polls queue task, submits WhatsApp OTP then PIN, and waits until completed', async () => {
   const fetchCalls = [];
   let currentState = {
     plusManualConfirmationPending: true,
     plusManualConfirmationRequestId: '',
   };
+  let pollCount = 0;
   const { events, executor } = createExecutorHarness({
     frames: [],
     stateByFrame: {},
     getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url.endsWith('/api/gopay/otp')) {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_123') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }),
+          };
+        }
+        if (pollCount === 2) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ status: 'otp_ready', status_text: '等待 PIN', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+          };
+        }
         return {
           ok: true,
           status: 200,
-          json: async () => ({ reference_id: 'ref_123', challenge_id: 'challenge_456' }),
+          json: async () => createGpcTaskResponse({ status: 'completed', status_text: '充值完成', remote_stage: 'completed' }),
         };
       }
-      if (url.endsWith('/api/gopay/pin')) {
+      if (url.endsWith('/api/gp/tasks/task_123/otp')) {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ stage: 'gopay_complete' }),
+          json: async () => createGpcTaskResponse({ status: 'otp_ready', status_text: '等待 PIN', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_123/pin')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ status: 'active', status_text: '处理中', remote_stage: 'payment_processing' }),
         };
       }
       throw new Error(`unexpected url: ${url}`);
@@ -831,12 +876,10 @@ test('GPC billing normalizes API URL and submits OTP then PIN with card_key and 
   const run = executor.executePlusCheckoutBilling({
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
-    gopayHelperReferenceId: 'ref_123',
-    gopayHelperGoPayGuid: 'guid_789',
-    gopayHelperApiUrl: 'https://gopay.hwork.pro/api/checkout/start',
+    gopayHelperTaskId: 'task_123',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/api/gp/tasks/task_old/otp',
     gopayHelperPin: '654321',
-    gopayHelperCardKey: 'card_billing_123',
-    gopayHelperFlowId: 'flow_billing_123',
+    gopayHelperApiKey: 'gpc_billing_123',
   });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -850,53 +893,70 @@ test('GPC billing normalizes API URL and submits OTP then PIN with card_key and 
 
   await run;
 
-  assert.equal(fetchCalls[0].url, 'https://gopay.hwork.pro/api/gopay/otp');
-  assert.deepEqual(JSON.parse(fetchCalls[0].options.body), {
-    reference_id: 'ref_123',
-    otp: '123456',
-    card_key: 'card_billing_123',
-    flow_id: 'flow_billing_123',
-    gopay_guid: 'guid_789',
-  });
-  assert.equal(fetchCalls[1].url, 'https://gopay.hwork.pro/api/gopay/pin');
-  assert.deepEqual(JSON.parse(fetchCalls[1].options.body), {
-    reference_id: 'ref_123',
-    challenge_id: 'challenge_456',
-    gopay_guid: 'guid_789',
-    pin: '654321',
-    card_key: 'card_billing_123',
-    flow_id: 'flow_billing_123',
-  });
+  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/tasks/task_123');
+  assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_billing_123');
+  const otpCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_123/otp'));
+  const pinCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_123/pin'));
+  assert.deepEqual(JSON.parse(otpCall.options.body), { otp: '123456' });
+  assert.equal(otpCall.options.headers['X-API-Key'], 'gpc_billing_123');
+  assert.deepEqual(JSON.parse(pinCall.options.body), { pin: '654321' });
+  assert.equal(pinCall.options.headers['X-API-Key'], 'gpc_billing_123');
+  assert.ok(fetchCalls.findIndex((call) => call.url.endsWith('/api/gp/tasks/task_123/pin')) < fetchCalls.length - 1);
+  assert.equal(events.states.some((state) => state.gopayHelperTaskId === 'task_123' && state.gopayHelperTaskStatus === 'completed'), true);
   assert.equal(events.completed[0].step, 7);
   assert.equal(events.completed[0].payload.plusCheckoutSource, 'gpc-helper');
+  assert.ok(events.sleeps.includes(3000));
 });
 
-test('GPC billing reads OTP from local SMS helper when enabled', async () => {
+test('GPC billing reads SMS OTP from local helper for sms_otp_wait', async () => {
   const fetchCalls = [];
+  let pollCount = 0;
   const { events, executor } = createExecutorHarness({
     frames: [],
     stateByFrame: {},
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url.startsWith('http://127.0.0.1:18767/otp')) {
+      if (url.startsWith('http://127.0.0.1:18767/latest-otp')) {
         return {
           ok: true,
           status: 200,
           json: async () => ({ ok: true, otp: '654321', message_id: 'sms-1' }),
         };
       }
-      if (url.endsWith('/api/gopay/otp')) {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_sms') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_sms', status: 'active', remote_stage: 'sms_otp_wait', api_waiting_for: 'otp' }),
+          };
+        }
+        if (pollCount === 2) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_sms', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+          };
+        }
         return {
           ok: true,
           status: 200,
-          json: async () => ({ reference_id: 'ref_sms', challenge_id: 'challenge_sms' }),
+          json: async () => createGpcTaskResponse({ task_id: 'task_sms', status: 'completed', remote_stage: 'completed' }),
         };
       }
-      if (url.endsWith('/api/gopay/pin')) {
+      if (url.endsWith('/api/gp/tasks/task_sms/otp')) {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ stage: 'gopay_complete' }),
+          json: async () => createGpcTaskResponse({ task_id: 'task_sms', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_sms/pin')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_sms', status: 'active', remote_stage: 'payment_processing' }),
         };
       }
       throw new Error(`unexpected url: ${url}`);
@@ -906,10 +966,224 @@ test('GPC billing reads OTP from local SMS helper when enabled', async () => {
   await executor.executePlusCheckoutBilling({
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
-    gopayHelperReferenceId: 'ref_sms',
-    gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+    gopayHelperTaskId: 'task_sms',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
-    gopayHelperCardKey: 'card_sms',
+    gopayHelperApiKey: 'gpc_sms',
+    gopayHelperOtpChannel: 'sms',
+    gopayHelperLocalSmsHelperEnabled: true,
+    gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
+    gopayHelperCountryCode: '+86',
+    gopayHelperPhoneNumber: '13800138000',
+    gopayHelperOrderCreatedAt: 1710000000000,
+  });
+
+  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
+  assert.equal(events.states.some((state) => state.gopayHelperResolvedOtp === '654321'), true);
+  const helperUrl = new URL(fetchCalls[1].url);
+  assert.equal(helperUrl.origin + helperUrl.pathname, 'http://127.0.0.1:18767/latest-otp');
+  assert.equal(helperUrl.searchParams.get('task_id'), 'task_sms');
+  assert.equal(helperUrl.searchParams.get('reference_id'), 'task_sms');
+  assert.equal(helperUrl.searchParams.get('phone'), '+8613800138000');
+  assert.equal(helperUrl.searchParams.get('consume'), '1');
+  assert.equal(helperUrl.searchParams.get('after_ms'), '1710000000000');
+  assert.deepEqual(JSON.parse(fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_sms/otp')).options.body), {
+    otp: '654321',
+  });
+  assert.equal(events.completed[0].step, 7);
+});
+
+test('GPC billing can read WhatsApp OTP from local helper when enabled', async () => {
+  const fetchCalls = [];
+  let pollCount = 0;
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url.startsWith('http://127.0.0.1:18767/latest-otp')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, otp: '765432', message_id: 'wa-1' }),
+        };
+      }
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_wa') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_wa', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }),
+          };
+        }
+        if (pollCount === 2) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_wa', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_wa', status: 'completed', remote_stage: 'completed' }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_wa/otp')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_wa', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_wa/pin')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_wa', status: 'active', remote_stage: 'payment_processing' }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await executor.executePlusCheckoutBilling({
+    plusPaymentMethod: 'gpc-helper',
+    plusCheckoutSource: 'gpc-helper',
+    gopayHelperTaskId: 'task_wa',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperPin: '654321',
+    gopayHelperApiKey: 'gpc_wa',
+    gopayHelperOtpChannel: 'whatsapp',
+    gopayHelperLocalSmsHelperEnabled: true,
+    gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
+    gopayHelperCountryCode: '+86',
+    gopayHelperPhoneNumber: '18984829950',
+  });
+
+  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
+  assert.equal(events.states.some((state) => state.gopayHelperResolvedOtp === '765432'), true);
+  const helperUrl = new URL(fetchCalls.find((call) => call.url.startsWith('http://127.0.0.1:18767/latest-otp')).url);
+  assert.equal(helperUrl.searchParams.get('phone'), '+8618984829950');
+  assert.equal(helperUrl.searchParams.get('consume'), '1');
+  assert.deepEqual(JSON.parse(fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_wa/otp')).options.body), {
+    otp: '765432',
+  });
+  assert.equal(events.completed[0].step, 7);
+});
+
+
+test('GPC billing helper mode does not open OTP dialog when helper has no code and task times out', async () => {
+  const fetchCalls = [];
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url.startsWith('http://127.0.0.1:18767/latest-otp')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, status: 'waiting', otp: '', message: '未查询到验证码' }),
+        };
+      }
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_timeout') {
+        const queryCount = fetchCalls.filter((call) => call.url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_timeout').length;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse(queryCount === 1
+            ? {
+              task_id: 'task_timeout',
+              status: 'active',
+              remote_stage: 'whatsapp_otp_wait',
+              api_waiting_for: 'otp',
+            }
+            : {
+              task_id: 'task_timeout',
+              status: 'failed',
+              status_text: '充值失败',
+              remote_stage: 'api_otp_timeout',
+              error_message: '等待 OTP 超过 60 秒，任务已超时',
+            }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await assert.rejects(
+    () => executor.executePlusCheckoutBilling({
+      plusPaymentMethod: 'gpc-helper',
+      plusCheckoutSource: 'gpc-helper',
+      gopayHelperTaskId: 'task_timeout',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperPin: '654321',
+      gopayHelperApiKey: 'gpc_timeout',
+      gopayHelperOtpChannel: 'whatsapp',
+      gopayHelperLocalSmsHelperEnabled: true,
+      gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
+      gopayHelperPhoneNumber: '+8613800138000',
+    }),
+    /GPC_TASK_ENDED::等待 OTP 超过 60 秒，任务已超时/
+  );
+
+  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
+  assert.equal(fetchCalls.some((call) => call.url.endsWith('/api/gp/tasks/task_timeout/otp')), false);
+  assert.equal(fetchCalls.some((call) => call.url.endsWith('/api/gp/tasks/task_timeout/stop')), false);
+  assert.ok(events.sleeps.includes(3000));
+});
+
+test('GPC billing helper mode requests newer OTP after invalid OTP error', async () => {
+  const fetchCalls = [];
+  let taskPollCount = 0;
+  let helperCallCount = 0;
+  let otpPostCount = 0;
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url.startsWith('http://127.0.0.1:18767/latest-otp')) {
+        helperCallCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, otp: helperCallCount === 1 ? '111111' : '222222', message_id: `sms-${helperCallCount}` }),
+        };
+      }
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_retry') {
+        taskPollCount += 1;
+        if (taskPollCount === 1) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'active', remote_stage: 'sms_otp_wait', api_waiting_for: 'otp' }) };
+        }
+        if (taskPollCount === 2) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'active', remote_stage: 'sms_otp_wait', api_waiting_for: 'otp', last_input_error: 'OTP 校验失败，请重新输入正确的 OTP', otp_invalid_count: 1 }) };
+        }
+        if (taskPollCount === 3) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }) };
+        }
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'completed', remote_stage: 'completed' }) };
+      }
+      if (url.endsWith('/api/gp/tasks/task_retry/otp')) {
+        otpPostCount += 1;
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'active', remote_stage: 'otp_submitted_local' }) };
+      }
+      if (url.endsWith('/api/gp/tasks/task_retry/pin')) {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_retry', status: 'active', remote_stage: 'payment_processing' }) };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await executor.executePlusCheckoutBilling({
+    plusPaymentMethod: 'gpc-helper',
+    plusCheckoutSource: 'gpc-helper',
+    gopayHelperTaskId: 'task_retry',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperPin: '654321',
+    gopayHelperApiKey: 'gpc_retry',
     gopayHelperOtpChannel: 'sms',
     gopayHelperLocalSmsHelperEnabled: true,
     gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
@@ -917,81 +1191,101 @@ test('GPC billing reads OTP from local SMS helper when enabled', async () => {
     gopayHelperOrderCreatedAt: 1710000000000,
   });
 
-  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
-  assert.equal(events.states.some((state) => state.gopayHelperResolvedOtp === '654321'), true);
-  const helperUrl = new URL(fetchCalls[0].url);
-  assert.equal(helperUrl.origin + helperUrl.pathname, 'http://127.0.0.1:18767/otp');
-  assert.equal(helperUrl.searchParams.get('reference_id'), 'ref_sms');
-  assert.equal(helperUrl.searchParams.get('phone_number'), '+8613800138000');
-  assert.equal(helperUrl.searchParams.get('after_ms'), '1710000000000');
-  assert.deepEqual(JSON.parse(fetchCalls[1].options.body), {
-    reference_id: 'ref_sms',
-    otp: '654321',
-    card_key: 'card_sms',
-  });
+  const otpBodies = fetchCalls
+    .filter((call) => call.url.endsWith('/api/gp/tasks/task_retry/otp'))
+    .map((call) => JSON.parse(call.options.body));
+  assert.deepEqual(otpBodies, [{ otp: '111111' }, { otp: '222222' }]);
+  assert.equal(otpPostCount, 2);
+  const helperUrls = fetchCalls.filter((call) => call.url.startsWith('http://127.0.0.1:18767/latest-otp')).map((call) => new URL(call.url));
+  assert.equal(helperUrls.length, 2);
+  assert.equal(helperUrls[0].searchParams.get('phone'), '+8613800138000');
+  assert.equal(helperUrls[0].searchParams.get('consume'), '1');
+  assert.equal(helperUrls[0].searchParams.get('after_ms'), '1710000000000');
+  assert.equal(helperUrls[1].searchParams.get('phone'), '+8613800138000');
+  assert.equal(helperUrls[1].searchParams.get('consume'), '1');
+  assert.ok(Number(helperUrls[1].searchParams.get('after_ms')) > 1710000000000);
+  assert.equal(events.logs.some((entry) => /OTP 校验失败/.test(entry.message)), true);
   assert.equal(events.completed[0].step, 7);
 });
 
-test('GPC billing can read WhatsApp OTP from local helper when enabled', async () => {
+test('GPC billing manual OTP wrong input opens next dialog only after previous one closes', async () => {
   const fetchCalls = [];
+  let currentState = {
+    plusManualConfirmationPending: true,
+    plusManualConfirmationRequestId: '',
+  };
+  let pendingDialogCount = 0;
+  let pollCount = 0;
   const { events, executor } = createExecutorHarness({
     frames: [],
     stateByFrame: {},
+    getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url.startsWith('http://127.0.0.1:18767/otp')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ ok: true, otp: '765432', message_id: 'wa-1' }),
-        };
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_manual_retry') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }) };
+        }
+        if (pollCount === 2) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp', last_input_error: 'OTP 校验失败，请重新输入正确的 OTP', otp_invalid_count: 1 }) };
+        }
+        if (pollCount === 3) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'otp_ready', remote_stage: 'otp_ready', api_waiting_for: 'pin' }) };
+        }
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'completed', remote_stage: 'completed' }) };
       }
-      if (url.endsWith('/api/gopay/otp')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ reference_id: 'ref_wa', challenge_id: 'challenge_wa' }),
-        };
+      if (url.endsWith('/api/gp/tasks/task_manual_retry/otp')) {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'active', remote_stage: 'otp_submitted_local' }) };
       }
-      if (url.endsWith('/api/gopay/pin')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ stage: 'gopay_complete' }),
-        };
+      if (url.endsWith('/api/gp/tasks/task_manual_retry/pin')) {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_manual_retry', status: 'active', remote_stage: 'payment_processing' }) };
       }
       throw new Error(`unexpected url: ${url}`);
     },
+    onSetState: async (updates) => {
+      if (updates?.plusManualConfirmationMethod !== 'gopay-otp') {
+        return;
+      }
+      pendingDialogCount += 1;
+      const resolvedOtp = pendingDialogCount === 1 ? '111111' : '222222';
+      setTimeout(() => {
+        currentState = {
+          plusManualConfirmationPending: false,
+          plusManualConfirmationRequestId: updates.plusManualConfirmationRequestId,
+          gopayHelperResolvedOtp: resolvedOtp,
+        };
+      }, 0);
+    },
   });
 
-  await executor.executePlusCheckoutBilling({
+  const run = executor.executePlusCheckoutBilling({
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
-    gopayHelperReferenceId: 'ref_wa',
-    gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+    gopayHelperTaskId: 'task_manual_retry',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
-    gopayHelperCardKey: 'card_wa',
-    gopayHelperOtpChannel: 'whatsapp',
-    gopayHelperLocalSmsHelperEnabled: true,
-    gopayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
-    gopayHelperPhoneNumber: '+8613800138000',
+    gopayHelperApiKey: 'gpc_manual_retry',
   });
 
-  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
-  assert.equal(events.states.some((state) => state.gopayHelperResolvedOtp === '765432'), true);
-  const helperUrl = new URL(fetchCalls[0].url);
-  assert.equal(helperUrl.origin + helperUrl.pathname, 'http://127.0.0.1:18767/otp');
-  assert.equal(helperUrl.searchParams.get('reference_id'), 'ref_wa');
-  assert.equal(helperUrl.searchParams.get('phone_number'), '+8613800138000');
-  assert.deepEqual(JSON.parse(fetchCalls[1].options.body), {
-    reference_id: 'ref_wa',
-    otp: '765432',
-    card_key: 'card_wa',
-  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const firstPending = events.states.find((state) => state.plusManualConfirmationMethod === 'gopay-otp');
+  assert.ok(firstPending);
+  assert.equal(events.states.filter((state) => state.plusManualConfirmationMethod === 'gopay-otp').length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  const pendingDialogs = events.states.filter((state) => state.plusManualConfirmationMethod === 'gopay-otp');
+  assert.equal(pendingDialogs.length, 2);
+  assert.notEqual(pendingDialogs[1].plusManualConfirmationRequestId, firstPending.plusManualConfirmationRequestId);
+  assert.match(pendingDialogs[1].plusManualConfirmationMessage, /OTP 校验失败/);
+  await run;
+  const otpBodies = fetchCalls
+    .filter((call) => call.url.endsWith('/api/gp/tasks/task_manual_retry/otp'))
+    .map((call) => JSON.parse(call.options.body));
+  assert.deepEqual(otpBodies, [{ otp: '111111' }, { otp: '222222' }]);
   assert.equal(events.completed[0].step, 7);
 });
 
-test('GPC billing retries OTP with compatibility field after HTTP 400', async () => {
+test('GPC billing manual OTP cancel stops task and ends current round', async () => {
   const fetchCalls = [];
   let currentState = {
     plusManualConfirmationPending: true,
@@ -1003,26 +1297,11 @@ test('GPC billing retries OTP with compatibility field after HTTP 400', async ()
     getState: async () => currentState,
     fetchImpl: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (url.endsWith('/api/gopay/otp') && fetchCalls.filter((call) => call.url.endsWith('/api/gopay/otp')).length === 1) {
-        return {
-          ok: false,
-          status: 400,
-          json: async () => ({ error: 'otp field invalid' }),
-        };
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_cancel') {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_cancel', status: 'active', remote_stage: 'whatsapp_otp_wait', api_waiting_for: 'otp' }) };
       }
-      if (url.endsWith('/api/gopay/otp')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ challenge_id: 'challenge_retry' }),
-        };
-      }
-      if (url.endsWith('/api/gopay/pin')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ stage: 'gopay_complete' }),
-        };
+      if (url.endsWith('/api/gp/tasks/task_cancel/stop')) {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_cancel', status: 'discarded', status_text: '已停止' }) };
       }
       throw new Error(`unexpected url: ${url}`);
     },
@@ -1031,35 +1310,145 @@ test('GPC billing retries OTP with compatibility field after HTTP 400', async ()
   const run = executor.executePlusCheckoutBilling({
     plusPaymentMethod: 'gpc-helper',
     plusCheckoutSource: 'gpc-helper',
-    gopayHelperReferenceId: 'ref_retry',
-    gopayHelperGoPayGuid: 'guid_retry',
-    gopayHelperRedirectUrl: 'https://pm-redirects.stripe.com/retry',
-    gopayHelperApiUrl: 'http://localhost:18473/',
+    gopayHelperTaskId: 'task_cancel',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPin: '654321',
-    gopayHelperCardKey: 'card_retry',
-    gopayHelperFlowId: 'flow_retry',
+    gopayHelperApiKey: 'gpc_cancel',
   });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   const pending = events.states.find((state) => state.plusManualConfirmationMethod === 'gopay-otp');
+  assert.ok(pending);
   currentState = {
     plusManualConfirmationPending: false,
     plusManualConfirmationRequestId: pending.plusManualConfirmationRequestId,
-    gopayHelperResolvedOtp: '123456',
+    gopayHelperResolvedOtp: '',
   };
 
-  await run;
+  await assert.rejects(run, /GPC_TASK_ENDED::OTP 输入已取消，已结束当前 GPC 任务。/);
+  const stopCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_cancel/stop'));
+  assert.ok(stopCall);
+  assert.equal(stopCall.options.headers['X-API-Key'], 'gpc_cancel');
+  assert.equal(events.completed.length, 0);
+});
 
-  assert.equal(fetchCalls.filter((call) => call.url.endsWith('/api/gopay/otp')).length, 2);
-  assert.deepEqual(JSON.parse(fetchCalls[1].options.body), {
-    reference_id: 'ref_retry',
-    otp: '123456',
-    card_key: 'card_retry',
-    flow_id: 'flow_retry',
-    gopay_guid: 'guid_retry',
-    redirect_url: 'https://pm-redirects.stripe.com/retry',
-    code: '123456',
+test('GPC billing PIN failure ends task without retrying PIN', async () => {
+  const fetchCalls = [];
+  let pollCount = 0;
+  const { executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_pin_failed') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_pin_failed', status: 'otp_ready', status_text: '等待 PIN', remote_stage: 'otp_ready', api_waiting_for: 'pin' }) };
+        }
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_pin_failed', status: 'failed', status_text: '充值失败', remote_stage: 'gopay_validate_pin', failure_stage: 'gopay_validate_pin', failure_detail: 'PIN 校验失败', error_message: 'GoPay PIN validation failed' }) };
+      }
+      if (url.endsWith('/api/gp/tasks/task_pin_failed/pin')) {
+        return { ok: true, status: 200, json: async () => createGpcTaskResponse({ task_id: 'task_pin_failed', status: 'active', remote_stage: 'pin_submitted_local' }) };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
   });
-  assert.equal(events.logs.some((entry) => /兼容字段重试/.test(entry.message)), true);
-  assert.equal(events.completed[0].step, 7);
+
+  await assert.rejects(
+    () => executor.executePlusCheckoutBilling({
+      plusPaymentMethod: 'gpc-helper',
+      plusCheckoutSource: 'gpc-helper',
+      gopayHelperTaskId: 'task_pin_failed',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperPin: '654321',
+      gopayHelperApiKey: 'gpc_pin_failed',
+    }),
+    /GPC_TASK_ENDED::GoPay PIN validation failed（gopay_validate_pin）/
+  );
+
+  assert.equal(fetchCalls.filter((call) => call.url.endsWith('/api/gp/tasks/task_pin_failed/pin')).length, 1);
+  assert.equal(fetchCalls.some((call) => call.url.endsWith('/api/gp/tasks/task_pin_failed/stop')), false);
+});
+
+for (const terminalStatus of ['failed', 'expired', 'discarded']) {
+  test(`GPC billing throws readable error for terminal ${terminalStatus} task`, async () => {
+    const fetchCalls = [];
+    const { executor } = createExecutorHarness({
+      frames: [],
+      stateByFrame: {},
+      fetchImpl: async (url, options = {}) => {
+        fetchCalls.push({ url, options });
+        if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_bad') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({
+              task_id: 'task_bad',
+              status: terminalStatus,
+              status_text: terminalStatus,
+              error_message: '用户可读失败原因',
+            }),
+          };
+        }
+        throw new Error(`unexpected url: ${url}`);
+      },
+    });
+
+    await assert.rejects(
+      () => executor.executePlusCheckoutBilling({
+        plusPaymentMethod: 'gpc-helper',
+        plusCheckoutSource: 'gpc-helper',
+        gopayHelperTaskId: 'task_bad',
+        gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+        gopayHelperPin: '654321',
+        gopayHelperApiKey: 'gpc_bad',
+      }),
+      /GPC_TASK_ENDED::用户可读失败原因/
+    );
+
+    assert.equal(fetchCalls.some((call) => call.url.endsWith('/api/gp/tasks/task_bad/stop')), false);
+  });
+}
+
+test('GPC billing stops task best-effort when flow is interrupted before terminal state', async () => {
+  const fetchCalls = [];
+  const { executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_stop') {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ code: 500, message: 'server_error', data: { detail: '临时失败' } }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_stop/stop')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_stop', status: 'discarded', status_text: '已停止' }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await assert.rejects(
+    () => executor.executePlusCheckoutBilling({
+      plusPaymentMethod: 'gpc-helper',
+      plusCheckoutSource: 'gpc-helper',
+      gopayHelperTaskId: 'task_stop',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperPin: '654321',
+      gopayHelperApiKey: 'gpc_stop',
+    }),
+    /临时失败/
+  );
+
+  const stopCall = fetchCalls.find((call) => call.url.endsWith('/api/gp/tasks/task_stop/stop'));
+  assert.ok(stopCall);
+  assert.deepEqual(JSON.parse(stopCall.options.body), {});
+  assert.equal(stopCall.options.headers['X-API-Key'], 'gpc_stop');
 });

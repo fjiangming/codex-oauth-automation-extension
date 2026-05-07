@@ -1031,7 +1031,7 @@
 
         case 'REFRESH_GPC_CARD_BALANCE': {
           if (typeof refreshGpcCardBalance !== 'function') {
-            throw new Error('GPC 卡密余额查询能力尚未接入。');
+            throw new Error('GPC API Key 余额查询能力尚未接入。');
           }
           const state = await getState();
           const result = await refreshGpcCardBalance({

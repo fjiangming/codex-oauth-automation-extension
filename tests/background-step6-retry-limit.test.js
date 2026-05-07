@@ -32,6 +32,63 @@ test('step 6 waits for registration success and completes from background', asyn
   assert.ok(events.logs.some(({ message }) => /等待 20 秒/.test(message)));
 });
 
+test('step 6 only clears cookies when cleanup switch is enabled', async () => {
+  const source = fs.readFileSync('background/steps/wait-registration-success.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep6;`)(globalScope);
+
+  const events = {
+    removedCookies: [],
+    browsingDataCalls: [],
+    completedSteps: [],
+  };
+  const chromeApi = {
+    cookies: {
+      getAllCookieStores: async () => [{ id: 'store-a' }],
+      getAll: async () => [
+        { domain: '.chatgpt.com', path: '/auth', name: 'session', storeId: 'store-a' },
+        { domain: '.example.com', path: '/', name: 'keep', storeId: 'store-a' },
+      ],
+      remove: async (details) => {
+        events.removedCookies.push(details);
+        return details;
+      },
+    },
+    browsingData: {
+      removeCookies: async (details) => {
+        events.browsingDataCalls.push(details);
+      },
+    },
+  };
+
+  const executor = api.createStep6Executor({
+    addLog: async () => {},
+    chrome: chromeApi,
+    completeStepFromBackground: async (step) => {
+      events.completedSteps.push(step);
+    },
+    sleepWithStop: async () => {},
+  });
+
+  await executor.executeStep6({ step6CookieCleanupEnabled: false });
+
+  assert.deepStrictEqual(events.removedCookies, []);
+  assert.deepStrictEqual(events.browsingDataCalls, []);
+
+  await executor.executeStep6({ step6CookieCleanupEnabled: true });
+
+  assert.deepStrictEqual(events.completedSteps, [6, 6]);
+  assert.deepStrictEqual(events.removedCookies, [
+    {
+      url: 'https://chatgpt.com/auth',
+      name: 'session',
+      storeId: 'store-a',
+    },
+  ]);
+  assert.equal(events.browsingDataCalls.length, 1);
+  assert.ok(events.browsingDataCalls[0].origins.includes('https://chatgpt.com'));
+});
+
 test('step 7 retries up to configured limit and then fails', async () => {
   const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
   const globalScope = {};

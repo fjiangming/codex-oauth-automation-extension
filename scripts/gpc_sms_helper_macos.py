@@ -74,6 +74,11 @@ def extract_gopay_otp(text: str, require_keywords: bool = True) -> Optional[str]
     return None
 
 
+def normalize_phone_key(value: object) -> str:
+    digits = re.sub(r"\D+", "", str(value or ""))
+    return f"+{digits}" if digits else ""
+
+
 def mac_message_time_to_datetime(value: int | float | None) -> dt.datetime:
     if not value:
         return dt.datetime.now(dt.timezone.utc)
@@ -113,24 +118,52 @@ def read_recent_messages(db_path: Path, after_rowid: int = 0, limit: int = 80) -
     try:
         conn = sqlite3.connect(str(copied))
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            SELECT
-              message.ROWID AS rowid,
-              message.guid AS guid,
-              message.text AS text,
-              message.date AS date,
-              message.service AS service,
-              handle.id AS handle
-            FROM message
-            LEFT JOIN handle ON message.handle_id = handle.ROWID
-            WHERE message.ROWID > ?
-              AND message.text IS NOT NULL
-            ORDER BY message.ROWID DESC
-            LIMIT ?
-            """,
-            (max(0, int(after_rowid or 0)), max(1, int(limit or 80))),
-        ).fetchall()
+        params = (max(0, int(after_rowid or 0)), max(1, int(limit or 80)))
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                  message.ROWID AS rowid,
+                  message.guid AS guid,
+                  message.text AS text,
+                  message.date AS date,
+                  message.service AS service,
+                  message.destination_caller_id AS destination_caller_id,
+                  message.account AS account,
+                  handle.id AS handle,
+                  chat.last_addressed_handle AS last_addressed_handle,
+                  chat.account_login AS account_login
+                FROM message
+                LEFT JOIN handle ON message.handle_id = handle.ROWID
+                LEFT JOIN chat_message_join ON chat_message_join.message_id = message.ROWID
+                LEFT JOIN chat ON chat.ROWID = chat_message_join.chat_id
+                WHERE message.ROWID > ?
+                  AND message.text IS NOT NULL
+                ORDER BY message.ROWID DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = conn.execute(
+                """
+                SELECT
+                  message.ROWID AS rowid,
+                  message.guid AS guid,
+                  message.text AS text,
+                  message.date AS date,
+                  message.service AS service,
+                  message.account AS account,
+                  handle.id AS handle
+                FROM message
+                LEFT JOIN handle ON message.handle_id = handle.ROWID
+                WHERE message.ROWID > ?
+                  AND message.text IS NOT NULL
+                ORDER BY message.ROWID DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
         return [dict(row) for row in rows]
     finally:
         try:
@@ -140,8 +173,17 @@ def read_recent_messages(db_path: Path, after_rowid: int = 0, limit: int = 80) -
         shutil.rmtree(copied.parent, ignore_errors=True)
 
 
+def get_record_phone(row: dict) -> str:
+    for key in ("destination_caller_id", "last_addressed_handle", "account_login", "account"):
+        phone = normalize_phone_key(row.get(key))
+        if phone:
+            return phone
+    return ""
+
+
 def make_otp_record(row: dict, otp: str) -> dict:
     received_at = mac_message_time_to_datetime(row.get("date")).isoformat()
+    phone_e164 = get_record_phone(row)
     return {
         "otp": otp,
         "code": otp,
@@ -149,6 +191,8 @@ def make_otp_record(row: dict, otp: str) -> dict:
         "rowid": int(row.get("rowid") or 0),
         "sender": str(row.get("handle") or ""),
         "service": str(row.get("service") or ""),
+        "account_phone": phone_e164,
+        "phone_e164": phone_e164,
         "received_at": received_at,
         "message_text": str(row.get("text") or ""),
     }
@@ -189,19 +233,86 @@ def parse_timestamp_ms(value: object) -> int:
     return int(numeric)
 
 
-def select_otp_record(state: dict, after_ms: int = 0) -> Optional[dict]:
+def record_matches_phone(record: dict, phone: str = "") -> bool:
+    wanted = normalize_phone_key(phone)
+    if not wanted:
+        return True
+    return normalize_phone_key(record.get("phone_e164") or record.get("account_phone")) == wanted
+
+
+def select_otp_record(state: dict, after_ms: int = 0, phone: str = "") -> Optional[dict]:
     records = state.get("otps")
     if not isinstance(records, list):
         records = []
     if after_ms > 0:
         for record in records:
-            if isinstance(record, dict) and parse_timestamp_ms(record.get("received_at")) >= after_ms:
+            if (
+                isinstance(record, dict)
+                and record_matches_phone(record, phone)
+                and parse_timestamp_ms(record.get("received_at")) >= after_ms
+            ):
                 return record
         return None
     record = state.get("last_otp") or None
-    if isinstance(record, dict):
+    if isinstance(record, dict) and record_matches_phone(record, phone):
         return record
-    return records[0] if records and isinstance(records[0], dict) else None
+    for record in records:
+        if isinstance(record, dict) and record_matches_phone(record, phone):
+            return record
+    return None
+
+
+def consume_otp_record(phone: str = "", record: Optional[dict] = None) -> None:
+    wanted = normalize_phone_key(phone)
+    consumed_message_id = str((record or {}).get("message_id") or "").strip()
+    consumed_rowid = int((record or {}).get("rowid") or 0)
+
+    def is_consumed_record(item: object) -> bool:
+        if not isinstance(item, dict):
+            return False
+        if consumed_message_id and str(item.get("message_id") or "").strip() == consumed_message_id:
+            return True
+        if consumed_rowid and int(item.get("rowid") or 0) == consumed_rowid:
+            return True
+        return False
+
+    def is_same_record(left: object, right: object) -> bool:
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        left_message_id = str(left.get("message_id") or "").strip()
+        right_message_id = str(right.get("message_id") or "").strip()
+        if left_message_id and right_message_id and left_message_id == right_message_id:
+            return True
+        left_rowid = int(left.get("rowid") or 0)
+        right_rowid = int(right.get("rowid") or 0)
+        if left_rowid > 0 and right_rowid > 0 and left_rowid == right_rowid:
+            return True
+        return left == right
+
+    with STATE_LOCK:
+        records = STATE.get("otps")
+        if not isinstance(records, list):
+            records = []
+
+        if consumed_message_id or consumed_rowid:
+            next_records = [item for item in records if isinstance(item, dict) and not is_consumed_record(item)]
+        elif wanted:
+            removed_once = False
+            next_records = []
+            for item in records:
+                if not isinstance(item, dict):
+                    continue
+                if not removed_once and record_matches_phone(item, wanted):
+                    removed_once = True
+                    continue
+                next_records.append(item)
+        else:
+            next_records = []
+
+        STATE["otps"] = next_records
+        last_otp = STATE.get("last_otp")
+        if isinstance(last_otp, dict) and not any(is_same_record(last_otp, item) for item in STATE["otps"]):
+            STATE["last_otp"] = STATE["otps"][0] if STATE["otps"] else None
 
 
 def scan_once(db_path: Path, require_keywords: bool = True) -> None:
@@ -263,14 +374,15 @@ class HelperHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             consume = str(query.get("consume", ["0"])[0]).strip().lower() in {"1", "true", "yes"}
             after_ms = parse_timestamp_ms(query.get("after_ms", query.get("after", ["0"]))[0])
+            phone = str((query.get("phone") or query.get("phone_e164") or query.get("phone_number") or [""])[0]).strip()
             state = get_state()
-            record = select_otp_record(state, after_ms=after_ms)
+            record = select_otp_record(state, after_ms=after_ms, phone=phone)
             if not record:
                 write_json(self, 200, {"ok": True, "otp": "", "code": "", "status": "waiting", "message": "未查询到验证码"})
                 return
             payload = {"ok": True, "status": "found", **record}
             if consume:
-                update_state(last_otp=None)
+                consume_otp_record(phone=phone, record=record)
             write_json(self, 200, payload)
             return
         write_json(self, 404, {"ok": False, "error": "not_found"})
