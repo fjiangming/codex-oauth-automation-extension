@@ -450,6 +450,10 @@ function getSignupPasswordDisplayedEmail() {
   return 'user@example.com';
 }
 
+function getSignupPasswordFieldErrorText() {
+  return '';
+}
+
 function findOneTimeCodeLoginTrigger() {
   return oneTimeCodeButton;
 }
@@ -474,6 +478,7 @@ return {
 
   assert.equal(result.url, 'https://auth.openai.com/create-account/password');
   assert.equal(result.displayedEmail, 'user@example.com');
+  assert.equal(result.passwordErrorText, '');
   assert.equal(result.hasVisiblePasswordInput, true);
   assert.equal(result.passwordInputCount, 1);
   assert.equal(result.visiblePasswordInputCount, 1);

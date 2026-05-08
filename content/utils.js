@@ -349,7 +349,6 @@ function reportComplete(step, data = {}) {
  */
 function reportError(step, errorMessage) {
   console.error(LOG_PREFIX, `步骤 ${step} 失败: ${errorMessage}`);
-  log(`失败：${errorMessage}`, 'error', { step });
   const message = {
     type: 'STEP_ERROR',
     source: getRuntimeScriptSource(),

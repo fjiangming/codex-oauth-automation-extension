@@ -307,9 +307,13 @@ if (shouldHandlePollEmailInCurrentFrame) {
       const items = collectThreadItems();
       const useFallback = (fallbackCarry + attempt) > FALLBACK_AFTER;
 
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
         const signature = buildItemSignature(item);
-        if (!useFallback && existingSignatures.has(signature)) {
+        const allowInitialStep8VisibleCode = Number(step) === 8
+          && attempt === 1
+          && index === 0
+          && !sessionBaseline.fromCache;
+        if (!useFallback && existingSignatures.has(signature) && !allowInitialStep8VisibleCode) {
           continue;
         }
 

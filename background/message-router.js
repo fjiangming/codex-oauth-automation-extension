@@ -16,6 +16,7 @@
       clearAccountRunHistory,
       deleteAccountRunHistoryRecords,
       clearAutoRunTimerAlarm,
+      clearFreeReusablePhoneActivation,
       clearLuckmailRuntimeState,
       clearStopRequest,
       closeLocalhostCallbackTabs,
@@ -103,6 +104,7 @@
       setContributionMode,
       setEmailState,
       setEmailStateSilently,
+      setFreeReusablePhoneActivation,
       setSignupPhoneState,
       setSignupPhoneStateSilently,
       setIcloudAliasPreservedState,
@@ -587,15 +589,20 @@
             notifyStepError(message.step, '流程已被用户停止。');
             return { ok: true, error: userMessage };
           }
+          const currentState = await getState();
+          const currentStepStatus = currentState?.stepStatuses?.[message.step] || '';
+          const isSignupPhonePasswordMismatch = /SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(String(message.error || ''));
           if (isStopError(message.error)) {
             await setStepStatus(message.step, 'stopped');
             await addLog('已被用户停止', 'warn', { step: message.step });
             await appendManualAccountRunRecordIfNeeded(`step${message.step}_stopped`, null, message.error);
             notifyStepError(message.step, message.error);
           } else {
-            await setStepStatus(message.step, 'failed');
-            await addLog(`失败：${message.error}`, 'error', { step: message.step });
-            await appendManualAccountRunRecordIfNeeded(`step${message.step}_failed`, null, message.error);
+            if (!(isSignupPhonePasswordMismatch && currentStepStatus === 'failed')) {
+              await setStepStatus(message.step, 'failed');
+              await addLog(`失败：${message.error}`, 'error', { step: message.step });
+              await appendManualAccountRunRecordIfNeeded(`step${message.step}_failed`, null, message.error);
+            }
             notifyStepError(message.step, message.error);
           }
           return { ok: true };
@@ -677,6 +684,20 @@
           await resetState();
           await addLog('流程已重置', 'info');
           return { ok: true };
+        }
+
+        case 'CLEAR_FREE_REUSABLE_PHONE': {
+          if (typeof clearFreeReusablePhoneActivation !== 'function') {
+            throw new Error('白嫖复用手机号清除能力未接入。');
+          }
+          return await clearFreeReusablePhoneActivation();
+        }
+
+        case 'SET_FREE_REUSABLE_PHONE': {
+          if (typeof setFreeReusablePhoneActivation !== 'function') {
+            throw new Error('白嫖复用手机号记录能力未接入。');
+          }
+          return await setFreeReusablePhoneActivation(message.payload || {});
         }
 
         case 'SET_CONTRIBUTION_MODE': {
@@ -986,6 +1007,9 @@
           if (Boolean(currentState?.contributionMode) && typeof setContributionMode === 'function') {
             await setContributionMode(true);
           }
+          if (Object.keys(stateUpdates).length > 0 && typeof broadcastDataUpdate === 'function') {
+            broadcastDataUpdate(stateUpdates);
+          }
           if (modeChanged) {
             const selectedPlusPaymentMethod = getPlusPaymentMethodLabel(
               stateUpdates.plusPaymentMethod ?? currentState?.plusPaymentMethod ?? 'paypal'
@@ -1007,7 +1031,7 @@
 
         case 'REFRESH_GPC_CARD_BALANCE': {
           if (typeof refreshGpcCardBalance !== 'function') {
-            throw new Error('GPC 卡密余额查询能力尚未接入。');
+            throw new Error('GPC API Key 余额查询能力尚未接入。');
           }
           const state = await getState();
           const result = await refreshGpcCardBalance({

@@ -251,6 +251,9 @@
       const sub2apiUrl = normalizeSub2ApiUrl(state.sub2apiUrl);
       const groupName = (state.sub2apiGroupName || DEFAULT_SUB2API_GROUP_NAME).trim() || DEFAULT_SUB2API_GROUP_NAME;
 
+      if (!sub2apiUrl) {
+        throw new Error('SUB2API URL is not configured. Please fill it in the side panel first.');
+      }
       if (!state.sub2apiEmail) {
         throw new Error('尚未配置 SUB2API 登录邮箱，请先在侧边栏填写。');
       }
@@ -293,6 +296,7 @@
           sub2apiPassword: state.sub2apiPassword,
           sub2apiGroupName: groupName,
           sub2apiDefaultProxyName: state.sub2apiDefaultProxyName,
+          sub2apiAccountPriority: state.sub2apiAccountPriority,
           logStep: 7,
         },
       }, {

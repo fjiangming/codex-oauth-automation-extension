@@ -179,7 +179,7 @@
       <div class="data-row" id="row-sub2api-url" style="display:none;">
         <span class="data-label">SUB2API</span>
         <input type="text" id="input-sub2api-url" class="data-input"
-          placeholder="https://sub2api.hisence.fun/admin/accounts" />
+          placeholder="https://your-sub2api-domain/admin/accounts" />
       </div>
       <div class="data-row" id="row-sub2api-email" style="display:none;">
         <span class="data-label">账号</span>
@@ -209,6 +209,10 @@
           </div>
           <button id="btn-add-sub2api-group" class="btn btn-outline btn-sm data-inline-btn" type="button">添加</button>
         </div>
+      </div>
+      <div class="data-row" id="row-sub2api-account-priority" style="display:none;">
+        <span class="data-label">优先级</span>
+        <input type="number" id="input-sub2api-account-priority" class="data-input mono" value="1" min="1" step="1" />
       </div>
       <div class="data-row" id="row-sub2api-default-proxy" style="display:none;">
         <span class="data-label">默认代理</span>
@@ -279,15 +283,23 @@
           <button id="btn-add-paypal-account" class="btn btn-outline btn-sm data-inline-btn" type="button">添加</button>
         </div>
       </div>
+      <div class="data-row" id="row-gpc-helper-api" style="display:none;">
+        <span class="data-label">GPC API</span>
+        <div class="data-inline">
+          <input type="text" id="input-gpc-helper-api" class="data-input gpc-helper-api-input"
+            value="https://gpc.qlhazycoder.top/" placeholder="https://gpc.qlhazycoder.top/" autocomplete="off" readonly />
+          <button id="btn-gpc-helper-convert-api-key" class="btn btn-outline btn-sm data-inline-btn" type="button">转换 API Key</button>
+        </div>
+      </div>
       <div class="data-row" id="row-gpc-helper-card-key" style="display:none;">
-        <span class="data-label">GPC 卡密</span>
+        <span class="data-label">GPC API Key</span>
         <div class="data-inline">
           <div class="input-with-icon">
             <input type="password" id="input-gpc-helper-card-key" class="data-input data-input-with-icon"
-              placeholder="请输入购买的 GPC 卡密" autocomplete="off" />
+              placeholder="请输入 GPC API Key（gpc-...）" autocomplete="off" />
             <button id="btn-toggle-gpc-helper-card-key" class="input-icon-btn" type="button"
-              data-password-toggle="input-gpc-helper-card-key" data-show-label="显示 GPC 卡密"
-              data-hide-label="隐藏 GPC 卡密" aria-label="显示 GPC 卡密" title="显示 GPC 卡密"></button>
+              data-password-toggle="input-gpc-helper-card-key" data-show-label="显示 GPC API Key"
+              data-hide-label="隐藏 GPC API Key" aria-label="显示 GPC API Key" title="显示 GPC API Key"></button>
           </div>
           <button id="btn-gpc-helper-balance" class="btn btn-ghost btn-xs data-inline-btn" type="button">查余额</button>
           <span id="display-gpc-helper-balance" class="data-value mono">余额未获取</span>
@@ -323,17 +335,17 @@
         </select>
       </div>
       <div class="data-row" id="row-gpc-helper-local-sms-enabled" style="display:none;">
-        <span class="data-label">本地短信</span>
+        <span class="data-label">本地 OTP</span>
         <label class="toggle-switch">
           <input type="checkbox" id="input-gpc-helper-local-sms-enabled" />
           <span class="toggle-switch-track" aria-hidden="true">
             <span class="toggle-switch-thumb"></span>
           </span>
         </label>
-        <span class="setting-caption">从本机 macOS Messages helper 读取 SMS OTP</span>
+        <span class="setting-caption">从本机 helper 读取当前通道 OTP，开启后不弹手动验证码</span>
       </div>
       <div class="data-row" id="row-gpc-helper-local-sms-url" style="display:none;">
-        <span class="data-label">短信接口</span>
+        <span class="data-label">OTP 接口</span>
         <input type="text" id="input-gpc-helper-local-sms-url" class="data-input"
           placeholder="http://127.0.0.1:18767" autocomplete="off" />
       </div>
@@ -394,10 +406,10 @@
             <option value="hotmail-api">Hotmail（账号池）</option>
             <option value="luckmail-api">LuckMail（API 购邮）</option>
             <option value="icloud">iCloud 邮箱</option>
-            <option value="163">163 邮箱 (mail.163.com)</option>
-            <option value="163-vip">163 VIP 邮箱 (vip.163.com)</option>
-            <option value="126">126 邮箱 (mail.126.com)</option>
-            <option value="qq">QQ 邮箱 (wx.mail.qq.com)</option>
+            <option value="163">163 邮箱 (mail.163.com) 下个版本删除</option>
+            <option value="163-vip">163 VIP 邮箱 (vip.163.com) 下个版本删除</option>
+            <option value="126">126 邮箱 (mail.126.com) 下个版本删除</option>
+            <option value="qq">QQ 邮箱 (wx.mail.qq.com) 下个版本删除</option>
             <option value="inbucket">Inbucket（自定义主机）</option>
             <option value="2925">2925 邮箱 (2925.com)</option>
             <option value="gmail">Gmail 邮箱 (mail.google.com)</option>
@@ -536,9 +548,19 @@
         </div>
       </div>
       <div class="data-row module-divider-start" id="row-auto-delay-settings">
-        <span class="data-label">延迟</span>
-        <div class="data-inline setting-pair">
-          <div class="setting-group setting-group-primary">
+        <span class="data-label">第六步</span>
+        <div class="data-inline setting-pair auto-delay-setting-pair">
+          <div class="setting-group setting-group-primary step6-cookie-cleanup-setting">
+            <span class="setting-caption setting-caption-left">清 Cookies</span>
+            <label class="toggle-switch" for="input-step6-cookie-cleanup-enabled">
+              <input type="checkbox" id="input-step6-cookie-cleanup-enabled" />
+              <span class="toggle-switch-track" aria-hidden="true">
+                <span class="toggle-switch-thumb"></span>
+              </span>
+            </label>
+          </div>
+          <div class="setting-group setting-group-secondary auto-run-delay-setting">
+            <span class="setting-caption">延迟</span>
             <label class="toggle-switch" for="input-auto-delay-enabled">
               <input type="checkbox" id="input-auto-delay-enabled" />
               <span class="toggle-switch-track" aria-hidden="true">
@@ -549,14 +571,6 @@
               <input type="number" id="input-auto-delay-minutes" class="data-input auto-delay-input" value="30" min="1"
                 max="1440" step="1" title="启动前倒计时分钟数" />
               <span class="data-unit">分钟</span>
-            </div>
-          </div>
-          <div class="setting-group setting-group-secondary">
-            <span class="setting-caption">步间间隔</span>
-            <div class="setting-controls">
-              <input type="number" id="input-auto-step-delay-seconds" class="data-input auto-delay-input" value=""
-                min="0" max="600" step="1" title="步间延迟秒数，0 或留空则不延迟" />
-              <span class="data-unit">秒</span>
             </div>
           </div>
         </div>
@@ -572,6 +586,30 @@
               </span>
             </label>
           </div>
+          <div class="setting-group setting-group-secondary auto-step-delay-setting">
+            <span class="setting-caption">步间间隔</span>
+            <div class="setting-controls">
+              <input type="number" id="input-auto-step-delay-seconds" class="data-input auto-delay-input" value=""
+                min="0" max="600" step="1" title="步间延迟秒数，0 或留空则不延迟" />
+              <span class="data-unit">秒</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="data-row" id="row-oauth-flow-timeout">
+        <span class="data-label">授权总超时</span>
+        <div class="data-inline setting-pair">
+          <div class="setting-group setting-group-primary oauth-flow-timeout-setting">
+            <label class="toggle-switch" for="input-oauth-flow-timeout-enabled"
+              title="关闭后不再用 5 分钟总预算重启授权链，但页面、点击、回调等本地等待超时仍会生效">
+              <input type="checkbox" id="input-oauth-flow-timeout-enabled" checked />
+              <span class="toggle-switch-track" aria-hidden="true">
+                <span class="toggle-switch-thumb"></span>
+              </span>
+              <span>启用</span>
+            </label>
+            <span class="setting-caption oauth-flow-timeout-caption">关闭后只取消 Step 7 后链总预算</span>
+          </div>
           <div class="setting-group setting-group-secondary">
             <span class="setting-caption">线程间隔</span>
             <div class="setting-controls">
@@ -580,20 +618,6 @@
               <span class="data-unit">分钟</span>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="data-row" id="row-oauth-flow-timeout">
-        <span class="data-label">授权总超时</span>
-        <div class="data-inline">
-          <label class="toggle-switch" for="input-oauth-flow-timeout-enabled"
-            title="关闭后不再用 5 分钟总预算重启授权链，但页面、点击、回调等本地等待超时仍会生效">
-            <input type="checkbox" id="input-oauth-flow-timeout-enabled" checked />
-            <span class="toggle-switch-track" aria-hidden="true">
-              <span class="toggle-switch-thumb"></span>
-            </span>
-            <span>启用</span>
-          </label>
-          <span class="setting-caption">关闭后只取消 Step 7 后链总预算</span>
         </div>
       </div>
       <div class="data-row module-divider-start" id="row-oauth-display">
@@ -1467,6 +1491,28 @@
                     <span class="data-unit">次</span>
                   </div>
                 </div>
+                <div id="row-free-phone-reuse-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
+                  <span class="hero-sms-settings-caption">白嫖复用</span>
+                  <div class="setting-controls hero-sms-toggle-controls">
+                    <label class="toggle-switch" for="input-free-phone-reuse-enabled" title="开启后保存首个成功接码手机号；自动复用关闭时，下次只填号码、不提交，并停止自动流程">
+                      <input type="checkbox" id="input-free-phone-reuse-enabled" />
+                      <span class="toggle-switch-track" aria-hidden="true">
+                        <span class="toggle-switch-thumb"></span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                <div id="row-free-phone-reuse-auto-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
+                  <span class="hero-sms-settings-caption">自动白嫖复用</span>
+                  <div class="setting-controls hero-sms-toggle-controls">
+                    <label class="toggle-switch" for="input-free-phone-reuse-auto-enabled" title="开启后自动将已记录手机号设为等待短信状态，自动提交并轮询验证码；最多复用 3 次">
+                      <input type="checkbox" id="input-free-phone-reuse-auto-enabled" />
+                      <span class="toggle-switch-track" aria-hidden="true">
+                        <span class="toggle-switch-thumb"></span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1486,6 +1532,14 @@
           <div id="row-hero-sms-current-code" class="hero-sms-runtime-cell" style="display:none;">
             <span class="hero-sms-runtime-key">验证码</span>
             <span id="display-hero-sms-current-code" class="data-value mono hero-sms-runtime-value">未获取</span>
+          </div>
+          <div id="row-free-reusable-phone" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2 hero-sms-free-phone-cell" style="display:none;">
+            <span class="hero-sms-runtime-key">白嫖号码</span>
+            <input type="text" id="input-free-reusable-phone" class="data-input mono hero-sms-manual-phone-input" placeholder="复用手机号" title="已记录号码会自动显示；未记录时可手动填写并记录" />
+            <span id="display-free-reusable-phone-country" class="data-value hero-sms-free-phone-country">地区：未保存</span>
+            <span id="display-free-reusable-phone" class="data-value mono hero-sms-runtime-value">未保存</span>
+            <button id="btn-save-free-reusable-phone" class="btn btn-outline btn-xs data-inline-btn hero-sms-runtime-action" type="button">记录</button>
+            <button id="btn-clear-free-reusable-phone" class="btn btn-ghost btn-xs data-inline-btn hero-sms-runtime-action" type="button">清除</button>
           </div>
           <div id="row-hero-sms-preferred-activation" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2" style="display:none;">
             <span class="hero-sms-runtime-key">优先号码</span>

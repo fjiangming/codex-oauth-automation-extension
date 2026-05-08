@@ -605,7 +605,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 这一步只负责等待注册完成后的页面状态稳定：
 
 - 固定等待 20 秒
-- 不再清理 `chatgpt.com / openai.com` 相关 cookies
+- 默认不清理 `chatgpt.com / openai.com` 相关 cookies；侧栏开启第六步 `清 Cookies` 后才会在等待结束后执行清理
 - 等待完成后直接进入后续 OAuth 登录链路
 
 

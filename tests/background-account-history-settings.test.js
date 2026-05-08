@@ -150,13 +150,16 @@ const self = {
         .replace(/\\/+$/g, '')
         .replace(/\\/api\\/checkout\\/start$/i, '')
         .replace(/\\/api\\/gopay\\/(?:otp|pin)$/i, '')
-        .replace(/\\/api\\/card\\/balance(?:\\?.*)?$/i, '');
+        .replace(/\\/api\\/gp\\/tasks(?:\\/[^/?#]+)?(?:\\/(?:otp|pin|stop))?(?:\\?.*)?$/i, '')
+        .replace(/\\/api\\/gp\\/balance(?:\\?.*)?$/i, '')
+        .replace(/\\/api\\/card\\/balance(?:\\?.*)?$/i, '')
+        .replace(/\\/api\\/card\\/redeem-api-key(?:\\?.*)?$/i, '');
     },
   },
 };
 const PERSISTED_SETTING_DEFAULTS = {
   autoStepDelaySeconds: null,
-  gopayHelperApiUrl: 'https://gopay.hwork.pro',
+  gopayHelperApiUrl: 'https://gpc.qlhazycoder.top',
   mailProvider: '163',
 };
 function normalizePanelMode(value) { return value === 'sub2api' ? 'sub2api' : (value === 'codex2api' ? 'codex2api' : 'cpa'); }
@@ -191,11 +194,19 @@ return {
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'paypal'), 'paypal');
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'unknown'), 'paypal');
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gopay.hwork.pro/api/checkout/start '),
-    'https://gopay.hwork.pro'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/checkout/start '),
+    'https://gpc.qlhazycoder.top'
   );
-  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gopay.hwork.pro');
-  assert.equal(api.normalizePersistentSettingValue('gopayHelperCardKey', ' card_123 '), 'card_123');
+  assert.equal(
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/tasks/task_1/pin '),
+    'https://gpc.qlhazycoder.top'
+  );
+  assert.equal(
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/balance '),
+    'https://gpc.qlhazycoder.top'
+  );
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gpc.qlhazycoder.top');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiKey', ' gpc-123 '), 'gpc-123');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperCountryCode', ' 86 '), '+86');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneNumber', ' +86 138-0013-8000 '), '+8613800138000');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPin', ' 12-34-56 '), '123456');

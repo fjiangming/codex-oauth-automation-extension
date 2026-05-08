@@ -448,3 +448,52 @@ test('phone auth resend stops with PHONE_ROUTE_405_RECOVERY_FAILED instead of en
     global.window = originalWindow;
   }
 });
+
+test('phone auth exposes resend page error checks for banned numbers', () => {
+  const originalLocation = global.location;
+  const originalDocument = global.document;
+  try {
+    global.location = {
+      href: 'https://auth.openai.com/phone-verification',
+      pathname: '/phone-verification',
+    };
+    global.document = {
+      querySelector() {
+        return {
+          querySelector() {
+            return null;
+          },
+          querySelectorAll() {
+            return [];
+          },
+        };
+      },
+    };
+
+    const helpers = api.createPhoneAuthHelpers({
+      fillInput: () => {},
+      getActionText: () => '',
+      getPageTextSnapshot: () => 'We cannot send a text message to this phone number. Please try another.',
+      getVerificationErrorText: () => '',
+      humanPause: async () => {},
+      isActionEnabled: () => true,
+      isAddPhonePageReady: () => false,
+      isConsentReady: () => false,
+      isPhoneVerificationPageReady: () => true,
+      isVisibleElement: () => true,
+      simulateClick: () => {},
+      sleep: async () => {},
+      throwIfStopped: () => {},
+      waitForElement: async () => null,
+    });
+
+    const result = helpers.checkPhoneResendError();
+    assert.equal(result.hasError, true);
+    assert.equal(result.reason, 'resend_phone_banned');
+    assert.equal(result.prefix, 'PHONE_RESEND_BANNED_NUMBER::');
+    assert.match(result.message, /cannot send/i);
+  } finally {
+    global.location = originalLocation;
+    global.document = originalDocument;
+  }
+});

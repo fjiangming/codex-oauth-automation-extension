@@ -7,7 +7,7 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gopay.hwork.pro';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
 
   function createPlusCheckoutCreateExecutor(deps = {}) {
     const {
@@ -16,7 +16,6 @@
       completeStepFromBackground,
       ensureContentScriptReadyOnTabUntilStopped,
       fetch: fetchImpl = null,
-      markCurrentRegistrationAccountUsed = null,
       registerTab,
       sendTabMessageUntilStopped,
       setState,
@@ -95,121 +94,17 @@
       return String(value || '').trim().toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
     }
 
-    function resolveGpcHelperCardKey(state = {}) {
-      const cardKey = String(state?.gopayHelperCardKey || state?.gpcCardKey || state?.cardKey || '').trim();
-      if (!cardKey) {
-        throw new Error('创建 GPC 订单失败：缺少卡密。');
-      }
-      return cardKey;
-    }
-
-    function resolveGpcHelperCustomerEmail(state = {}) {
-      const email = String(
-        state?.email
-        || state?.currentEmail
-        || state?.registrationEmail
-        || state?.accountEmail
-        || state?.mailboxEmail
+    function resolveGpcHelperApiKey(state = {}) {
+      const apiKey = String(
+        state?.gopayHelperApiKey
+        || state?.gpcApiKey
+        || state?.apiKey
         || ''
-      ).trim().toLowerCase();
-      if (!email) {
-        throw new Error('创建 GPC 订单失败：缺少当前轮邮箱。');
+      ).trim();
+      if (!apiKey) {
+        throw new Error('创建 GPC 订单失败：缺少 API Key。');
       }
-      return email;
-    }
-
-    function parseGpcAmount(value) {
-      if (typeof value === 'number') {
-        return Number.isFinite(value) ? { amount: value, raw: String(value) } : null;
-      }
-      if (typeof value !== 'string') {
-        return null;
-      }
-      const raw = String(value || '').trim();
-      if (!raw || !/\d/.test(raw)) {
-        return null;
-      }
-      const match = raw.match(/([+-]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})|[+-]?\d+(?:[.,]\d{1,2})?)/);
-      if (!match) {
-        return null;
-      }
-      let numericText = String(match[1] || '').trim();
-      const lastComma = numericText.lastIndexOf(',');
-      const lastDot = numericText.lastIndexOf('.');
-      if (lastComma > -1 && lastDot > -1) {
-        const decimalSeparator = lastComma > lastDot ? ',' : '.';
-        const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
-        numericText = numericText
-          .replace(new RegExp(`\\${thousandsSeparator}`, 'g'), '')
-          .replace(decimalSeparator, '.');
-      } else if (lastComma > -1) {
-        numericText = numericText.replace(',', '.');
-      }
-      const amount = Number(numericText.replace(/[^\d.+-]/g, ''));
-      return Number.isFinite(amount) ? { amount, raw } : null;
-    }
-
-    function isGpcAmountKey(key = '') {
-      const normalized = String(key || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
-      if (!normalized) {
-        return false;
-      }
-      if (/(?:^|_)(?:id|guid|uuid|phone|country|postal|zip|code|count|status|time|timestamp|created|updated|expires|challenge|client|reference|currency|state)(?:_|$)/i.test(normalized)) {
-        return false;
-      }
-      return /(?:amount|balance|total|due|payable|gross|subtotal|price|charge)/i.test(normalized);
-    }
-
-    function findGpcNonZeroAmount(payload = {}) {
-      const seen = new Set();
-      function visit(value, path = [], depth = 0) {
-        if (value == null || depth > 10) {
-          return null;
-        }
-        const key = path[path.length - 1] || '';
-        if (isGpcAmountKey(key)) {
-          const parsed = parseGpcAmount(value);
-          if (parsed && Math.abs(parsed.amount) >= 0.005) {
-            return { ...parsed, path: path.join('.') };
-          }
-        }
-        if (typeof value !== 'object') {
-          return null;
-        }
-        if (seen.has(value)) {
-          return null;
-        }
-        seen.add(value);
-        if (Array.isArray(value)) {
-          for (let index = 0; index < value.length; index += 1) {
-            const found = visit(value[index], [...path, String(index)], depth + 1);
-            if (found) return found;
-          }
-          return null;
-        }
-        for (const [childKey, childValue] of Object.entries(value)) {
-          const found = visit(childValue, [...path, childKey], depth + 1);
-          if (found) return found;
-        }
-        return null;
-      }
-      return visit(payload);
-    }
-
-    async function abortGpcNonFreeTrialIfNeeded(data = {}, state = {}) {
-      const nonZeroAmount = findGpcNonZeroAmount(data);
-      if (!nonZeroAmount) {
-        return;
-      }
-      const amountLabel = nonZeroAmount.raw || String(nonZeroAmount.amount);
-      await addLog(`步骤 6：GPC 接口返回余额非 0（${amountLabel}），当前账号没有免费试用资格，将跳过当前账号。`, 'warn');
-      if (typeof markCurrentRegistrationAccountUsed === 'function') {
-        await markCurrentRegistrationAccountUsed(state, {
-          reason: 'plus-checkout-non-free-trial',
-          logPrefix: 'GPC：当前账号没有免费试用资格',
-        });
-      }
-      throw new Error(`PLUS_CHECKOUT_NON_FREE_TRIAL::步骤 6：GPC 接口返回余额非 0（${amountLabel}），当前账号没有免费试用资格，已跳过支付提交。`);
+      return apiKey;
     }
 
     function normalizeGpcHelperBaseUrl(apiUrl = '') {
@@ -220,7 +115,10 @@
       let normalized = String(apiUrl || DEFAULT_GPC_HELPER_API_URL).trim().replace(/\/+$/g, '');
       normalized = normalized.replace(/\/api\/checkout\/start$/i, '');
       normalized = normalized.replace(/\/api\/gopay\/(?:otp|pin)$/i, '');
+      normalized = normalized.replace(/\/api\/gp\/tasks(?:\/[^/?#]+)?(?:\/(?:otp|pin|stop))?(?:\?.*)?$/i, '');
+      normalized = normalized.replace(/\/api\/gp\/balance(?:\?.*)?$/i, '');
       normalized = normalized.replace(/\/api\/card\/balance(?:\?.*)?$/i, '');
+      normalized = normalized.replace(/\/api\/card\/redeem-api-key(?:\?.*)?$/i, '');
       return normalized || DEFAULT_GPC_HELPER_API_URL;
     }
 
@@ -235,6 +133,47 @@
       }
       const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
       return `${baseUrl}${normalizedPath}`;
+    }
+
+    function buildGpcTaskCreateUrl(apiUrl = '') {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      if (rootScope.GoPayUtils?.buildGpcTaskCreateUrl) {
+        return rootScope.GoPayUtils.buildGpcTaskCreateUrl(apiUrl);
+      }
+      return buildGpcHelperApiUrl(apiUrl, '/api/gp/tasks');
+    }
+
+    function unwrapGpcResponse(payload = {}) {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      if (rootScope.GoPayUtils?.unwrapGpcResponse) {
+        return rootScope.GoPayUtils.unwrapGpcResponse(payload);
+      }
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)
+        && Object.prototype.hasOwnProperty.call(payload, 'data')
+        && (Object.prototype.hasOwnProperty.call(payload, 'code') || Object.prototype.hasOwnProperty.call(payload, 'message'))) {
+        return payload.data ?? {};
+      }
+      return payload;
+    }
+
+    function isGpcUnifiedResponseOk(payload = {}) {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      if (rootScope.GoPayUtils?.isGpcUnifiedResponseOk) {
+        return rootScope.GoPayUtils.isGpcUnifiedResponseOk(payload);
+      }
+      if (!payload || typeof payload !== 'object' || !Object.prototype.hasOwnProperty.call(payload, 'code')) {
+        return true;
+      }
+      const code = Number(payload.code);
+      return Number.isFinite(code) ? code >= 200 && code < 300 : String(payload.code || '').trim() === '200';
+    }
+
+    function getGpcResponseErrorDetail(payload = {}, status = 0) {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      if (rootScope.GoPayUtils?.extractGpcResponseErrorDetail) {
+        return rootScope.GoPayUtils.extractGpcResponseErrorDetail(payload, status);
+      }
+      return payload?.data?.detail || payload?.detail || payload?.message || payload?.error || `HTTP ${status || 0}`;
     }
 
     async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 30000) {
@@ -283,14 +222,14 @@
       if (!token) {
         throw new Error('创建 GPC 订单失败：缺少 accessToken。');
       }
-      const apiUrl = buildGpcHelperApiUrl(state?.gopayHelperApiUrl, '/api/checkout/start');
+      const apiUrl = buildGpcTaskCreateUrl(state?.gopayHelperApiUrl);
       if (!apiUrl) {
         throw new Error('创建 GPC 订单失败：缺少 API 地址。');
       }
       const phoneNumber = String(state?.gopayHelperPhoneNumber || '').trim();
       const countryCode = normalizeHelperCountryCode(state?.gopayHelperCountryCode || '86');
       const pin = String(state?.gopayHelperPin || '').trim();
-      const cardKey = resolveGpcHelperCardKey(state);
+      const apiKey = resolveGpcHelperApiKey(state);
       if (!phoneNumber) {
         throw new Error('创建 GPC 订单失败：缺少手机号。');
       }
@@ -300,32 +239,11 @@
 
       throwIfStopped();
       const payload = {
-        token,
-        entry_point: 'all_plans_pricing_modal',
-        plan_name: 'chatgptplusplan',
-        billing_details: { country: 'ID', currency: 'IDR' },
-        promo_campaign: {
-          promo_campaign_id: 'plus-1-month-free',
-          is_coupon_from_query_param: false,
-        },
-        checkout_ui_mode: 'custom',
-        proxy: { type: 'direct', url: '' },
-        tax_region: {
-          country: 'US',
-          line1: '1208 Oakdale Street',
-          city: 'Jonesboro',
-          postal_code: '72401',
-          state: 'AR',
-        },
-        customer_email: resolveGpcHelperCustomerEmail(state),
-        card_key: cardKey,
-        gopay_link: {
-          type: 'gopay',
-          country_code: countryCode,
-          phone_number: normalizeHelperPhoneNumber(phoneNumber, countryCode),
-          phone_mode: 'manual',
-          otp_channel: normalizeGpcOtpChannel(state?.gopayHelperOtpChannel),
-        },
+        access_token: token,
+        phone_mode: 'manual',
+        country_code: countryCode,
+        phone_number: normalizeHelperPhoneNumber(phoneNumber, countryCode),
+        otp_channel: normalizeGpcOtpChannel(state?.gopayHelperOtpChannel),
       };
 
       const orderCreatedAt = Date.now();
@@ -335,38 +253,26 @@
           Accept: '*/*',
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
           'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
         },
         body: JSON.stringify(payload),
       }, 30000);
 
-      const referenceId = String(data?.reference_id || data?.referenceId || '').trim();
-      const gopayGuid = String(data?.gopay_guid || data?.gopayGuid || '').trim();
-      const redirectUrl = String(data?.redirect_url || data?.redirectUrl || '').trim();
-      const nextAction = String(data?.next_action || data?.nextAction || '').trim();
-      const flowId = String(data?.flow_id || data?.flowId || '').trim();
-      const challengeId = String(data?.challenge_id || data?.challengeId || '').trim();
+      const taskData = unwrapGpcResponse(data);
+      const taskId = String(taskData?.task_id || taskData?.taskId || '').trim();
 
-      if (response?.ok) {
-        await abortGpcNonFreeTrialIfNeeded(data, state);
-      }
-
-      if (!response?.ok || !referenceId) {
-        const rootScope = typeof self !== 'undefined' ? self : globalThis;
-        const detail = rootScope.GoPayUtils?.extractGpcResponseErrorDetail
-          ? rootScope.GoPayUtils.extractGpcResponseErrorDetail(data, response?.status || 0)
-          : (data?.detail || data?.message || data?.error || `HTTP ${response?.status || 0}`);
+      if (!response?.ok || !isGpcUnifiedResponseOk(data) || !taskId) {
+        const detail = getGpcResponseErrorDetail(data, response?.status || 0);
         throw new Error(`创建 GPC 订单失败：${detail}`);
       }
 
       return {
-        referenceId,
-        gopayGuid,
-        redirectUrl,
-        nextAction,
-        flowId,
-        challengeId,
+        taskId,
+        taskStatus: String(taskData?.status || '').trim(),
+        statusText: String(taskData?.status_text || taskData?.statusText || '').trim(),
+        remoteStage: String(taskData?.remote_stage || taskData?.remoteStage || '').trim(),
         orderCreatedAt,
-        responsePayload: data && typeof data === 'object' && !Array.isArray(data) ? data : null,
+        responsePayload: taskData && typeof taskData === 'object' && !Array.isArray(taskData) ? taskData : null,
         country: 'ID',
         currency: 'IDR',
         checkoutSource: PLUS_PAYMENT_METHOD_GPC_HELPER,
@@ -398,16 +304,21 @@
         plusCheckoutCountry: result.country || 'ID',
         plusCheckoutCurrency: result.currency || 'IDR',
         plusCheckoutSource: result.checkoutSource,
-        gopayHelperReferenceId: result.referenceId,
-        gopayHelperGoPayGuid: result.gopayGuid,
-        gopayHelperRedirectUrl: result.redirectUrl,
-        gopayHelperNextAction: result.nextAction,
-        gopayHelperFlowId: result.flowId,
-        gopayHelperChallengeId: result.challengeId,
-        gopayHelperStartPayload: result.responsePayload,
+        gopayHelperTaskId: result.taskId,
+        gopayHelperTaskStatus: result.taskStatus,
+        gopayHelperStatusText: result.statusText,
+        gopayHelperRemoteStage: result.remoteStage,
+        gopayHelperTaskPayload: result.responsePayload,
+        gopayHelperReferenceId: '',
+        gopayHelperGoPayGuid: '',
+        gopayHelperRedirectUrl: '',
+        gopayHelperNextAction: '',
+        gopayHelperFlowId: '',
+        gopayHelperChallengeId: '',
+        gopayHelperStartPayload: null,
         gopayHelperOrderCreatedAt: result.orderCreatedAt || Date.now(),
       });
-      await addLog('步骤 6：GPC 订单已创建，准备继续下一步。', 'info');
+      await addLog(`步骤 6：GPC 任务已创建（task_id: ${result.taskId}），准备继续下一步。`, 'info');
       await completeStepFromBackground(6, {
         plusCheckoutCountry: result.country || 'ID',
         plusCheckoutCurrency: result.currency || 'IDR',

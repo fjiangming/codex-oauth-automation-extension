@@ -44,6 +44,9 @@ function createRouter(overrides = {}) {
     clearStopRequest: () => {},
     closeLocalhostCallbackTabs: async () => {},
     closeTabsByUrlPrefix: async () => {},
+    completeStepFromBackground: async (step, payload) => {
+      events.notifyCompletions.push({ step, payload, via: 'completeStepFromBackground' });
+    },
     deleteHotmailAccount: async () => {},
     deleteHotmailAccounts: async () => {},
     deleteIcloudAlias: async () => {},
@@ -435,6 +438,36 @@ test('message router marks step 3 failed when post-submit finalize fails', async
   assert.deepStrictEqual(response, { ok: true, error: '步骤 3 提交后仍停留在密码页。' });
 });
 
+test('message router does not duplicate step 3 mismatch failure log after finalize already failed', async () => {
+  const mismatchError = 'SIGNUP_PHONE_PASSWORD_MISMATCH::步骤 3：检测到注册手机号或密码不正确，需要重新开始当前轮。页面提示：Incorrect phone number or password';
+  const state = {
+    stepStatuses: {
+      3: 'failed',
+    },
+  };
+  const { router, events } = createRouter({
+    state,
+  });
+
+  const response = await router.handleMessage({
+    type: 'STEP_ERROR',
+    step: 3,
+    source: 'signup-page',
+    payload: {},
+    error: mismatchError,
+  }, {});
+
+  assert.deepStrictEqual(events.stepStatuses, []);
+  assert.equal(events.logs.some(({ message, step }) => /失败：SIGNUP_PHONE_PASSWORD_MISMATCH::/.test(message) && step === 3), false);
+  assert.deepStrictEqual(events.notifyErrors, [
+    {
+      step: 3,
+      error: mismatchError,
+    },
+  ]);
+  assert.deepStrictEqual(response, { ok: true });
+});
+
 test('message router stops the flow and surfaces cloudflare security block errors', async () => {
   const { router, events } = createRouter();
 
@@ -510,7 +543,7 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
   const state = {
     plusPaymentMethod: 'gpc-helper',
     gopayHelperApiUrl: 'http://localhost:18473/',
-    gopayHelperCardKey: 'state_card',
+    gopayHelperApiKey: 'state_api_key',
   };
   const { router, events } = createRouter({ state });
 
@@ -518,7 +551,7 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
     type: 'REFRESH_GPC_CARD_BALANCE',
     source: 'sidepanel',
     payload: {
-      gopayHelperCardKey: 'payload_card',
+      gopayHelperApiKey: 'payload_api_key',
       reason: 'manual',
     },
   }, {});
@@ -526,6 +559,6 @@ test('message router refreshes GPC balance through explicit sidepanel message', 
   assert.deepStrictEqual(response, { ok: true, balance: '余额 3' });
   assert.equal(events.balanceRefreshes.length, 1);
   assert.equal(events.balanceRefreshes[0].state.gopayHelperApiUrl, 'http://localhost:18473/');
-  assert.equal(events.balanceRefreshes[0].state.gopayHelperCardKey, 'payload_card');
+  assert.equal(events.balanceRefreshes[0].state.gopayHelperApiKey, 'payload_api_key');
   assert.deepStrictEqual(events.balanceRefreshes[0].options, { reason: 'manual' });
 });

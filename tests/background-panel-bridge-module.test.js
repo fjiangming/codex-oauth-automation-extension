@@ -116,3 +116,49 @@ test('panel bridge can request cpa oauth url via management api', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('panel bridge forwards SUB2API account priority when requesting oauth url', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const sentMessages = [];
+
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+  const bridge = api.createPanelBridge({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 72 }),
+      },
+    },
+    closeConflictingTabsForSource: async () => {},
+    ensureContentScriptReadyOnTab: async () => {},
+    getPanelMode: () => 'sub2api',
+    normalizeCodex2ApiUrl: (value) => value,
+    normalizeSub2ApiUrl: (value) => value,
+    rememberSourceLastUrl: async () => {},
+    sendToContentScript: async (sourceName, message, options) => {
+      sentMessages.push({ sourceName, message, options });
+      return {
+        oauthUrl: 'https://auth.openai.com/authorize?state=oauth-state',
+        sub2apiSessionId: 'session-123',
+        sub2apiOAuthState: 'oauth-state',
+      };
+    },
+    sendToContentScriptResilient: async () => ({}),
+    waitForTabUrlFamily: async () => ({ id: 72 }),
+    DEFAULT_SUB2API_GROUP_NAME: 'codex',
+    SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+  });
+
+  await bridge.requestOAuthUrlFromPanel({
+    panelMode: 'sub2api',
+    sub2apiUrl: 'https://sub.example/admin/accounts',
+    sub2apiEmail: 'admin@example.com',
+    sub2apiPassword: 'secret',
+    sub2apiGroupName: 'codex',
+    sub2apiAccountPriority: 3,
+  }, { logLabel: '步骤 7' });
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].sourceName, 'sub2api-panel');
+  assert.equal(sentMessages[0].message.payload.sub2apiAccountPriority, 3);
+});

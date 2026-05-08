@@ -107,7 +107,7 @@ test('GoPay plus checkout create forwards gopay payment method to the checkout c
   assert.deepStrictEqual(events[0]?.payload, { paymentMethod: 'gopay' });
 });
 
-test('GPC checkout injects Plus script before reading ChatGPT session token and sends card_key', async () => {
+test('GPC checkout injects Plus script before reading ChatGPT session token and sends X-API-Key', async () => {
   const events = [];
   const fetchCalls = [];
   const executor = api.createPlusCheckoutCreateExecutor({
@@ -129,10 +129,16 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
         ok: true,
         status: 200,
         json: async () => ({
-          reference_id: 'ref_123',
-          gopay_guid: 'guid_456',
-          next_action: 'enter_otp',
-          flow_id: 'flow_789',
+          code: 200,
+          message: 'ok',
+          data: {
+            task_id: 'task_123',
+            status: 'active',
+            status_text: '处理中',
+            phone_mode: 'manual',
+            remote_stage: 'checkout_start',
+            otp_channel: 'whatsapp',
+          },
         }),
       };
     },
@@ -149,12 +155,12 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
   await executor.executePlusCheckoutCreate({
     email: 'Current.Round+GPC@Example.COM',
     plusPaymentMethod: 'gpc-helper',
-    gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayPhone: '',
     gopayHelperCountryCode: '+86',
     gopayHelperPin: '123456',
-    gopayHelperCardKey: 'card_test_123',
+    gopayHelperApiKey: 'gpc_test_123',
   });
 
   const readyIndex = events.findIndex((event) => event.type === 'ready');
@@ -167,20 +173,27 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
     includeAccessToken: true,
   });
   assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].url, 'https://gopay.hwork.pro/api/checkout/start');
+  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
   const helperPayload = JSON.parse(fetchCalls[0].options.body);
-  assert.equal(helperPayload.customer_email, 'current.round+gpc@example.com');
-  assert.equal(helperPayload.card_key, 'card_test_123');
-  assert.deepEqual(helperPayload.gopay_link, {
-    type: 'gopay',
+  assert.deepEqual(helperPayload, {
+    access_token: 'session-access-token',
+    phone_mode: 'manual',
     country_code: '86',
     phone_number: '13800138000',
-    phone_mode: 'manual',
     otp_channel: 'whatsapp',
   });
+  assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_test_123');
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'card_key'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'customer_email'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'checkout_ui_mode'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'gopay_link'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'plan_name'), false);
   assert.equal(events.find((event) => event.type === 'set-state')?.payload?.plusCheckoutSource, 'gpc-helper');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperReferenceId, 'ref_123');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperFlowId, 'flow_789');
+  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperTaskId, 'task_123');
+  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperTaskStatus, 'active');
+  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperStatusText, '处理中');
+  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperRemoteStage, 'checkout_start');
+  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperReferenceId, '');
   assert.ok(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperOrderCreatedAt > 0);
   assert.equal(events.find((event) => event.type === 'complete')?.step, 6);
   assert.equal(events.find((event) => event.type === 'complete')?.payload?.plusCheckoutSource, 'gpc-helper');
@@ -203,7 +216,11 @@ test('GPC checkout forwards selected SMS OTP channel', async () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ reference_id: 'ref_sms', next_action: 'enter_otp' }),
+        json: async () => ({
+          code: 200,
+          message: 'ok',
+          data: { task_id: 'task_sms', status: 'active', phone_mode: 'manual', remote_stage: 'checkout_start' },
+        }),
       };
     },
     registerTab: async () => {},
@@ -216,25 +233,25 @@ test('GPC checkout forwards selected SMS OTP channel', async () => {
   await executor.executePlusCheckoutCreate({
     email: 'sms@example.com',
     plusPaymentMethod: 'gpc-helper',
-    gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayHelperCountryCode: '+86',
     gopayHelperPin: '123456',
-    gopayHelperCardKey: 'card_sms',
+    gopayHelperApiKey: 'gpc_sms',
     gopayHelperOtpChannel: 'sms',
   });
 
   const helperPayload = JSON.parse(fetchCalls[0].options.body);
-  assert.equal(helperPayload.gopay_link.phone_mode, 'manual');
-  assert.equal(helperPayload.gopay_link.otp_channel, 'sms');
+  assert.equal(helperPayload.phone_mode, 'manual');
+  assert.equal(helperPayload.otp_channel, 'sms');
+  assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_sms');
+  assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'card_key'), false);
 });
 
-test('GPC checkout treats non-zero API amount as non-free-trial and does not create order', async () => {
-  const markCalls = [];
+test('GPC checkout surfaces unified queue API errors', async () => {
   const fetchCalls = [];
-  const events = [];
   const executor = api.createPlusCheckoutCreateExecutor({
-    addLog: async (message, level = 'info') => events.push({ type: 'log', message, level }),
+    addLog: async () => {},
     chrome: {
       tabs: {
         create: async () => {
@@ -243,26 +260,19 @@ test('GPC checkout treats non-zero API amount as non-free-trial and does not cre
         remove: async () => {},
       },
     },
-    completeStepFromBackground: async () => {
-      throw new Error('should not complete step 6 for non-free-trial checkout');
-    },
+    completeStepFromBackground: async () => {},
     ensureContentScriptReadyOnTabUntilStopped: async () => {},
     fetch: async (url, options = {}) => {
       fetchCalls.push({ url, options });
       return {
-        ok: true,
-        status: 200,
+        ok: false,
+        status: 400,
         json: async () => ({
-          reference_id: 'ref_paid',
-          gopay_guid: 'guid_paid',
-          next_action: 'enter_otp',
-          checkout: { amount_due: 'Rp 29.000' },
+          code: 400,
+          message: 'invalid_param',
+          data: { detail: 'access_token 无效' },
         }),
       };
-    },
-    markCurrentRegistrationAccountUsed: async (state, options) => {
-      markCalls.push({ state, options });
-      return { updated: true };
     },
     registerTab: async () => {},
     sendTabMessageUntilStopped: async () => {},
@@ -275,22 +285,19 @@ test('GPC checkout treats non-zero API amount as non-free-trial and does not cre
     () => executor.executePlusCheckoutCreate({
       email: 'paid@example.com',
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       gopayHelperPhoneNumber: '+8613800138000',
       gopayHelperCountryCode: '+86',
       gopayHelperPin: '123456',
-      gopayHelperCardKey: 'card_paid_456',
+      gopayHelperApiKey: 'gpc_paid_456',
     }),
-    /PLUS_CHECKOUT_NON_FREE_TRIAL::.*余额非 0/
+    /创建 GPC 订单失败：access_token 无效/
   );
 
   assert.equal(fetchCalls.length, 1);
-  assert.equal(JSON.parse(fetchCalls[0].options.body).card_key, 'card_paid_456');
-  assert.equal(markCalls.length, 1);
-  assert.equal(markCalls[0].state.email, 'paid@example.com');
-  assert.equal(markCalls[0].options.reason, 'plus-checkout-non-free-trial');
-  assert.equal(events.some((event) => event.type === 'log' && /订单已创建/.test(event.message)), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(fetchCalls[0].options.body), 'card_key'), false);
+  assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_paid_456');
 });
 
 test('GPC checkout does not fall back to browser GoPay phone fields', async () => {
@@ -319,7 +326,7 @@ test('GPC checkout does not fall back to browser GoPay phone fields', async () =
   await assert.rejects(
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       email: 'helper-phone-test@example.com',
       gopayPhone: '+8613800138000',
@@ -327,13 +334,13 @@ test('GPC checkout does not fall back to browser GoPay phone fields', async () =
       gopayPin: '123456',
       gopayHelperPhoneNumber: '',
       gopayHelperPin: '123456',
-      gopayHelperCardKey: 'card_phone_test',
+      gopayHelperApiKey: 'gpc_phone_test',
     }),
     /缺少手机号/
   );
 });
 
-test('GPC checkout rejects missing card key before calling helper API', async () => {
+test('GPC checkout rejects missing API Key before calling helper API', async () => {
   const executor = api.createPlusCheckoutCreateExecutor({
     addLog: async () => {},
     chrome: {
@@ -347,7 +354,7 @@ test('GPC checkout rejects missing card key before calling helper API', async ()
     completeStepFromBackground: async () => {},
     ensureContentScriptReadyOnTabUntilStopped: async () => {},
     fetch: async () => {
-      throw new Error('should not call helper API without card key');
+      throw new Error('should not call helper API without API Key');
     },
     registerTab: async () => {},
     sendTabMessageUntilStopped: async () => {},
@@ -359,14 +366,14 @@ test('GPC checkout rejects missing card key before calling helper API', async ()
   await assert.rejects(
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gopay.hwork.pro/',
+      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
       chatgptAccessToken: 'state-access-token',
       email: 'missing-card@example.com',
       gopayHelperPhoneNumber: '+8613800138000',
       gopayHelperCountryCode: '+86',
       gopayHelperPin: '123456',
-      gopayHelperCardKey: '',
+      gopayHelperApiKey: '',
     }),
-    /缺少卡密/
+    /缺少 API Key/
   );
 });

@@ -343,6 +343,9 @@
       }
 
       const sub2apiUrl = normalizeSub2ApiUrl(state.sub2apiUrl);
+      if (!sub2apiUrl) {
+        throw new Error('SUB2API URL is not configured. Please fill it in the side panel first.');
+      }
       const injectFiles = ['content/utils.js', 'content/sub2api-panel.js'];
 
       await addStepLog(visibleStep, '正在打开 SUB2API 后台...');
@@ -380,6 +383,7 @@
           sub2apiPassword: state.sub2apiPassword,
           sub2apiGroupName: state.sub2apiGroupName,
           sub2apiDefaultProxyName: state.sub2apiDefaultProxyName,
+          sub2apiAccountPriority: state.sub2apiAccountPriority,
           sub2apiProxyId: state.sub2apiProxyId,
           sub2apiSessionId: state.sub2apiSessionId,
           sub2apiOAuthState: state.sub2apiOAuthState,

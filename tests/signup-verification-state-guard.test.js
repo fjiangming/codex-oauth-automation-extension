@@ -254,6 +254,64 @@ return {
   });
 });
 
+test('signup verification state exposes password error text on password page', () => {
+  const api = new Function(`
+const location = {
+  href: 'https://auth.openai.com/log-in/password',
+};
+
+function isStep5Ready() {
+  return false;
+}
+
+function isVerificationPageStillVisible() {
+  return false;
+}
+
+function isSignupPasswordErrorPage() {
+  return false;
+}
+
+function getSignupPasswordTimeoutErrorPageState() {
+  return null;
+}
+
+function isSignupEmailAlreadyExistsPage() {
+  return false;
+}
+
+function getSignupPasswordInput() {
+  return { value: 'Secret123!' };
+}
+
+function getSignupPasswordSubmitButton() {
+  return { textContent: 'Continue' };
+}
+
+function getSignupPasswordFieldErrorText() {
+  return 'Incorrect phone number or password';
+}
+
+${extractFunction('isSignupProfilePageUrl')}
+${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
+${extractFunction('getStep4PostVerificationState')}
+${extractFunction('inspectSignupVerificationState')}
+
+return {
+  run() {
+    return inspectSignupVerificationState();
+  },
+};
+`)();
+
+  assert.deepStrictEqual(api.run(), {
+    state: 'password',
+    passwordInput: { value: 'Secret123!' },
+    submitButton: { textContent: 'Continue' },
+    passwordErrorText: 'Incorrect phone number or password',
+  });
+});
+
 test('signup verification state keeps verification priority when email-verification page also shows profile fields', () => {
   const api = new Function(`
 const location = {

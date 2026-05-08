@@ -19,11 +19,14 @@
       waitForElement,
     } = deps;
     const PHONE_RESEND_THROTTLED_ERROR_PREFIX = 'PHONE_RESEND_THROTTLED::';
+    const PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX = 'PHONE_RESEND_BANNED_NUMBER::';
+    const PHONE_MAX_USAGE_EXCEEDED_PATTERN = /phone_max_usage_exceeded/i;
     const PHONE_ROUTE_405_RECOVERY_FAILED_ERROR_PREFIX = 'PHONE_ROUTE_405_RECOVERY_FAILED::';
     const PHONE_ROUTE_405_RECOVERY_COOLDOWN_MS = 6000;
     const PHONE_RESEND_ROUTE_405_MAX_RECOVERIES = 2;
     const PHONE_RESEND_ROUTE_405_MAX_RECOVERY_TOTAL_MS = 12000;
     const PHONE_RESEND_THROTTLED_PATTERN = /tried\s+to\s+resend\s+too\s+many\s+times|please\s+try\s+again\s+later|too\s+many\s+resend|resend\s+too\s+many|发送.*过于频繁|稍后再试|重试次数过多/i;
+    const PHONE_RESEND_BANNED_NUMBER_PATTERN = /无法向此电话号码发送短信|无法向此手机号发送短信|无法发送短信到此电话号码|无法发送短信到此手机号|can(?:not|'t)\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number|unable\s+to\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number/i;
     const PHONE_ROUTE_405_PATTERN = /405\s+method\s+not\s+allowed|route\s+error.*405|did\s+not\s+provide\s+an?\s+[`'"]?action|post\s+request\s+to\s+["']?\/phone-verification/i;
     const PHONE_ROUTE_405_MAX_RECOVERY_CLICKS = 3;
     const rootScope = typeof self !== 'undefined' ? self : globalThis;
@@ -493,6 +496,63 @@
       return '';
     }
 
+    function getPhoneResendBannedNumberText() {
+      const inlineMatch = getPhoneVerificationInlineMessages()
+        .find((text) => PHONE_RESEND_BANNED_NUMBER_PATTERN.test(text));
+      if (inlineMatch) {
+        return inlineMatch;
+      }
+      const pageSnapshot = String(getPageTextSnapshot?.() || '').replace(/\s+/g, ' ').trim();
+      if (pageSnapshot && PHONE_RESEND_BANNED_NUMBER_PATTERN.test(pageSnapshot)) {
+        const concise = pageSnapshot.match(
+          /无法向此电话号码发送短信|无法向此手机号发送短信|无法发送短信到此电话号码|无法发送短信到此手机号|can(?:not|'t)\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number[^.。!?]*[.。!?]?|unable\s+to\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number[^.。!?]*[.。!?]?/i
+        );
+        return String(concise?.[0] || pageSnapshot).trim();
+      }
+      return '';
+    }
+
+    function checkPhoneResendError() {
+      const maxUsageText = getAddPhoneErrorText();
+      if (maxUsageText && PHONE_MAX_USAGE_EXCEEDED_PATTERN.test(maxUsageText)) {
+        return {
+          hasError: true,
+          reason: 'phone_max_usage_exceeded',
+          message: maxUsageText,
+          url: location.href,
+        };
+      }
+
+      const bannedNumberText = getPhoneResendBannedNumberText();
+      if (bannedNumberText) {
+        return {
+          hasError: true,
+          reason: 'resend_phone_banned',
+          prefix: PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX,
+          message: bannedNumberText,
+          url: location.href,
+        };
+      }
+
+      const throttledText = getPhoneResendThrottleText();
+      if (throttledText) {
+        return {
+          hasError: true,
+          reason: 'resend_throttled',
+          prefix: PHONE_RESEND_THROTTLED_ERROR_PREFIX,
+          message: throttledText,
+          url: location.href,
+        };
+      }
+
+      return {
+        hasError: false,
+        reason: '',
+        message: '',
+        url: location.href,
+      };
+    }
+
     function getAuthRetryButton(options = {}) {
       const { allowDisabled = false } = options;
       const direct = document.querySelector('button[data-dd-action-name="Try again"]');
@@ -779,6 +839,10 @@
             await recoverRoute405WithinResend();
             continue;
           }
+          const bannedNumberText = getPhoneResendBannedNumberText();
+          if (bannedNumberText) {
+            throw new Error(`${PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX}${bannedNumberText}`);
+          }
           const throttledText = getPhoneResendThrottleText();
           if (throttledText) {
             throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${throttledText}`);
@@ -792,6 +856,10 @@
               await recoverRoute405WithinResend();
               continue;
             }
+            const afterClickBannedNumberText = getPhoneResendBannedNumberText();
+            if (afterClickBannedNumberText) {
+              throw new Error(`${PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX}${afterClickBannedNumberText}`);
+            }
             const afterClickThrottleText = getPhoneResendThrottleText();
             if (afterClickThrottleText) {
               throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${afterClickThrottleText}`);
@@ -802,6 +870,11 @@
             };
           }
           await sleep(250);
+        }
+
+        const timeoutBannedNumberText = getPhoneResendBannedNumberText();
+        if (timeoutBannedNumberText) {
+          throw new Error(`${PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX}${timeoutBannedNumberText}`);
         }
 
         const timeoutThrottleText = getPhoneResendThrottleText();
@@ -839,6 +912,7 @@
 
     return {
       getPhoneVerificationDisplayedPhone,
+      checkPhoneResendError,
       isPhoneVerificationPageReady,
       resendPhoneVerificationCode,
       returnToAddPhone,

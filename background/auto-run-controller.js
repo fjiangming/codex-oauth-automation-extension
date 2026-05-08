@@ -23,6 +23,7 @@
       getState,
       hasSavedProgress,
       isAddPhoneAuthFailure,
+      isGpcTaskEndedFailure,
       isPhoneSmsPlatformRateLimitFailure,
       isPlusCheckoutNonFreeTrialFailure,
       isRestartCurrentAttemptError,
@@ -166,7 +167,9 @@
               const retryCount = getAutoRunRoundRetryCount(item);
               const finalReason = item.finalFailureReason || item.failureReasons[item.failureReasons.length - 1] || '未知错误';
               const reasonSummary = formatAutoRunFailureReasons(item.failureReasons);
-              return `第 ${item.round} 轮（重试 ${retryCount} 次，最终原因：${finalReason}；失败记录：${reasonSummary}）`;
+              return !reasonSummary || reasonSummary === finalReason
+                ? `第 ${item.round} 轮（重试 ${retryCount} 次，最终原因：${finalReason}）`
+                : `第 ${item.round} 轮（重试 ${retryCount} 次，最终原因：${finalReason}；失败记录：${reasonSummary}）`;
             })
             .join('；')}`,
           'error'
@@ -527,6 +530,9 @@
               && isAddPhoneAuthFailure(err);
             const blockedByPlusNonFreeTrial = typeof isPlusCheckoutNonFreeTrialFailure === 'function'
               && isPlusCheckoutNonFreeTrialFailure(err);
+            const blockedByGpcTaskEnded = typeof isGpcTaskEndedFailure === 'function'
+              ? isGpcTaskEndedFailure(err)
+              : /GPC_TASK_ENDED::/i.test(err?.message || String(err || ''));
             const blockedBySignupUserAlreadyExists = typeof isSignupUserAlreadyExistsFailure === 'function'
               && !keepSameEmailUntilAddPhone
               && isSignupUserAlreadyExistsFailure(err);
@@ -535,6 +541,7 @@
             const canRetry = !blockedByAddPhone
               && !blockedByPhoneNoSupply
               && !blockedByPlusNonFreeTrial
+              && !blockedByGpcTaskEnded
               && !blockedBySignupUserAlreadyExists
               && autoRunSkipFailures
               && attemptRun < maxAttemptsForRound;
@@ -642,6 +649,41 @@
                 targetRun < totalRuns
                   ? `第 ${targetRun}/${totalRuns} 轮因 Plus 今日应付金额非 0 提前结束，自动流程将继续下一轮。`
                   : `第 ${targetRun}/${totalRuns} 轮因 Plus 今日应付金额非 0 提前结束，已无后续轮次，本次自动运行结束。`,
+                'warn'
+              );
+              forceFreshTabsNextRun = true;
+              break;
+            }
+
+            if (blockedByGpcTaskEnded) {
+              roundSummary.status = 'failed';
+              roundSummary.finalFailureReason = reason;
+              await setState({
+                autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
+              });
+              await appendRoundRecordIfNeeded('failed', reason);
+              cancelPendingCommands('当前轮因 GPC 任务已结束。');
+              await broadcastStopToContentScripts();
+              if (!autoRunSkipFailures) {
+                await addLog(
+                  `第 ${targetRun}/${totalRuns} 轮 GPC 任务已结束，自动重试未开启，当前自动运行将停止。`,
+                  'warn'
+                );
+                stoppedEarly = true;
+                await broadcastAutoRunStatus('stopped', {
+                  currentRun: targetRun,
+                  totalRuns,
+                  attemptRun,
+                  sessionId: 0,
+                });
+                break;
+              }
+
+              await addLog(`第 ${targetRun}/${totalRuns} 轮 GPC 任务已结束，本轮将直接失败并跳过剩余重试。`, 'warn');
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮因 GPC 任务结束提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因 GPC 任务结束提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;
