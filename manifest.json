@@ -4,6 +4,7 @@
   "version": "7.3",
   "version_name": "Ultra7.3",
   "description": "用于自动执行多步骤 OAuth 注册流程",
+  "incognito": "spanning",
   "permissions": [
     "sidePanel",
     "alarms",
@@ -53,7 +54,8 @@
         "content/auth-page-recovery.js",
         "content/phone-country-utils.js",
         "content/phone-auth.js",
-        "content/signup-page.js"
+        "content/signup-page.js",
+        "content/workspace-auto-select.js"
       ],
       "run_at": "document_idle"
     },

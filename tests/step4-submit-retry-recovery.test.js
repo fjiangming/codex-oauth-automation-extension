@@ -61,7 +61,12 @@ const location = { href: 'https://auth.openai.com/email-verification' };
 function throwIfStopped() {}
 function log() {}
 function getVerificationErrorText() { return ''; }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
 function isStep5Ready() { return step5Ready; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 function isStep8Ready() { return false; }
 function isAddPhonePageReady() { return false; }
 function isVerificationPageStillVisible() { return false; }
@@ -113,7 +118,12 @@ const location = { href: 'https://auth.openai.com/email-verification' };
 function throwIfStopped() {}
 function log() {}
 function getVerificationErrorText() { return ''; }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
 function isStep5Ready() { return false; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 function isStep8Ready() { return false; }
 function isAddPhonePageReady() { return false; }
 function isVerificationPageStillVisible() { return false; }
@@ -163,7 +173,12 @@ const location = { href: 'https://chatgpt.com/' };
 function throwIfStopped() {}
 function log() {}
 function getVerificationErrorText() { return ''; }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
 function isStep5Ready() { return false; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 function isStep8Ready() { return false; }
 function isAddPhonePageReady() { return false; }
 function isVerificationPageStillVisible() { return false; }
@@ -206,7 +221,12 @@ const location = { href: 'https://auth.openai.com/email-verification/register' }
 function throwIfStopped() {}
 function log() {}
 function getVerificationErrorText() { return ''; }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
 function isStep5Ready() { return true; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 function isStep8Ready() { return false; }
 function isAddPhonePageReady() { return false; }
 function isVerificationPageStillVisible() { return true; }

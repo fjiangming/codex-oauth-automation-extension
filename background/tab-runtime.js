@@ -130,6 +130,7 @@
       const tabs = await chrome.tabs.query({});
       const matchedIds = tabs
         .filter((tab) => Number.isInteger(tab.id) && !excluded.has(tab.id))
+        .filter((tab) => !tab.incognito) // [CUSTOM] 保留无痕窗口中的标签页
         .filter((tab) => referenceUrls.some((refUrl) => matchesSourceUrlFamily(source, tab.url, refUrl)))
         .map((tab) => tab.id);
 
@@ -531,10 +532,29 @@
       }
     }
 
+    // [CUSTOM] 获取非无痕窗口 ID，确保 tab 不会被创建在无痕窗口中
+    async function getNormalWindowId() {
+      try {
+        const allWindows = await chrome.windows.getAll({ populate: false });
+        const normalWin = allWindows.find(w => !w.incognito);
+        return normalWin ? normalWin.id : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+
+    // [CUSTOM] 在非无痕窗口中创建标签页
+    async function createTabInNormalWindow(url) {
+      const windowId = await getNormalWindowId();
+      const createOpts = { url, active: true };
+      if (windowId != null) createOpts.windowId = windowId;
+      return chrome.tabs.create(createOpts);
+    }
+
     async function reuseOrCreateTab(source, url, options = {}) {
       if (options.forceNew) {
         await closeConflictingTabsForSource(source, url);
-        const tab = await chrome.tabs.create({ url, active: true });
+        const tab = await createTabInNormalWindow(url); // [CUSTOM] 使用非无痕窗口
 
         if (options.inject) {
           await waitForTabUpdateComplete(tab.id);
@@ -560,24 +580,60 @@
       const alive = await isTabAlive(source);
       if (alive) {
         const tabId = await getTabId(source);
-        await closeConflictingTabsForSource(source, url, { excludeTabIds: [tabId] });
-        const currentTab = await chrome.tabs.get(tabId);
-        const sameUrl = currentTab.url === url;
-        const shouldReloadOnReuse = sameUrl && options.reloadIfSameUrl;
 
-        const registry = await getTabRegistry();
-        if (sameUrl) {
-          await chrome.tabs.update(tabId, { active: true });
-          if (shouldReloadOnReuse) {
-            if (registry[source]) registry[source].ready = false;
-            await setState({ tabRegistry: registry });
-            await chrome.tabs.reload(tabId);
-            await waitForTabUpdateComplete(tabId);
+        // [CUSTOM] 检查已有 tab 是否在无痕窗口中，如果是则放弃复用
+        let isInIncognito = false;
+        try {
+          const existingTab = await chrome.tabs.get(tabId);
+          isInIncognito = !!existingTab.incognito;
+        } catch { /* tab 已不存在 */ }
+
+        if (!isInIncognito) {
+          await closeConflictingTabsForSource(source, url, { excludeTabIds: [tabId] });
+          const currentTab = await chrome.tabs.get(tabId);
+          const sameUrl = currentTab.url === url;
+          const shouldReloadOnReuse = sameUrl && options.reloadIfSameUrl;
+
+          const registry = await getTabRegistry();
+          if (sameUrl) {
+            await chrome.tabs.update(tabId, { active: true });
+            if (shouldReloadOnReuse) {
+              if (registry[source]) registry[source].ready = false;
+              await setState({ tabRegistry: registry });
+              await chrome.tabs.reload(tabId);
+              await waitForTabUpdateComplete(tabId);
+            }
+
+            if (options.inject) {
+              if (registry[source]) registry[source].ready = false;
+              await setState({ tabRegistry: registry });
+              if (options.injectSource) {
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: (injectedSource) => {
+                    window.__MULTIPAGE_SOURCE = injectedSource;
+                  },
+                  args: [options.injectSource],
+                });
+              }
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                files: options.inject,
+              });
+              await sleepOrStop(500);
+            }
+
+            await rememberSourceLastUrl(source, url);
+            return tabId;
           }
 
+          if (registry[source]) registry[source].ready = false;
+          await setState({ tabRegistry: registry });
+          await chrome.tabs.update(tabId, { url, active: true });
+
+          await waitForTabUpdateComplete(tabId);
+
           if (options.inject) {
-            if (registry[source]) registry[source].ready = false;
-            await setState({ tabRegistry: registry });
             if (options.injectSource) {
               await chrome.scripting.executeScript({
                 target: { tabId },
@@ -591,42 +647,22 @@
               target: { tabId },
               files: options.inject,
             });
-            await sleepOrStop(500);
           }
 
+          await sleepOrStop(500);
           await rememberSourceLastUrl(source, url);
           return tabId;
         }
 
-        if (registry[source]) registry[source].ready = false;
+        // [CUSTOM] 已有 tab 在无痕窗口中，注销注册并走新建流程
+        console.log(LOG_PREFIX, `[reuseOrCreateTab] ${source} tab=${tabId} is in incognito, will create new tab in normal window`);
+        const registry = await getTabRegistry();
+        registry[source] = null;
         await setState({ tabRegistry: registry });
-        await chrome.tabs.update(tabId, { url, active: true });
-
-        await waitForTabUpdateComplete(tabId);
-
-        if (options.inject) {
-          if (options.injectSource) {
-            await chrome.scripting.executeScript({
-              target: { tabId },
-              func: (injectedSource) => {
-                window.__MULTIPAGE_SOURCE = injectedSource;
-              },
-              args: [options.injectSource],
-            });
-          }
-          await chrome.scripting.executeScript({
-            target: { tabId },
-            files: options.inject,
-          });
-        }
-
-        await sleepOrStop(500);
-        await rememberSourceLastUrl(source, url);
-        return tabId;
       }
 
       await closeConflictingTabsForSource(source, url);
-      const tab = await chrome.tabs.create({ url, active: true });
+      const tab = await createTabInNormalWindow(url); // [CUSTOM] 使用非无痕窗口
 
       if (options.inject) {
         await waitForTabUpdateComplete(tab.id);

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team 自定义注册认证</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="team-auth-addon.css">
+</head>
+
+<body>
+  <!-- ============================================================
+       Header
+       ============================================================ -->
+  <header>
+    <div class="ta-header-left">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+      <div class="ta-header-info">
+        <h1 class="ta-header-title">Team 自定义注册认证</h1>
+        <span id="ta-status-text" class="ta-header-subtitle">就绪</span>
+      </div>
+    </div>
+    <div class="ta-header-actions">
+      <button id="btn-theme" class="theme-toggle" type="button" aria-label="切换主题">
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Config Section
+       ============================================================ -->
+  <section id="ta-config-section" class="ta-section">
+    <div class="ta-card">
+      <div class="ta-card-header">
+        <span class="section-label">流程配置</span>
+      </div>
+
+      <!-- Mode Selection -->
+      <div class="ta-row">
+        <span class="ta-label">运行模式</span>
+        <div class="ta-mode-group">
+          <button id="btn-mode-full" class="btn btn-sm ta-mode-btn is-active" type="button"
+            data-mode="full">完整流程</button>
+          <button id="btn-mode-cert" class="btn btn-outline btn-sm ta-mode-btn" type="button"
+            data-mode="cert-only">仅认证</button>
+        </div>
+      </div>
+
+      <div class="ta-row">
+        <span class="ta-label">运行次数</span>
+        <div class="ta-controls">
+          <input id="input-run-count" type="number" class="ta-input" value="1" min="1" max="100" />
+          <span class="ta-unit">轮</span>
+        </div>
+      </div>
+
+      <!-- Seat Type Selection -->
+      <div class="ta-row">
+        <span class="ta-label">席位类型</span>
+        <div class="ta-mode-group">
+          <button id="btn-seat-codex" class="btn btn-sm ta-seat-btn is-active" type="button"
+            data-seat="Codex">Codex</button>
+          <button id="btn-seat-chatgpt" class="btn btn-outline btn-sm ta-seat-btn" type="button"
+            data-seat="ChatGPT">ChatGPT</button>
+        </div>
+      </div>
+
+      <p id="ta-mode-hint" class="ta-hint">完整流程：注册 1-5 → 邀请进团队 → 获取邮件 → 接受邀请 → OAuth 认证 → 清理子账号</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Actions
+       ============================================================ -->
+  <section id="ta-actions-section" class="ta-section">
+    <div class="ta-actions">
+      <button id="btn-start" class="btn btn-success ta-action-btn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        开始执行
+      </button>
+      <button id="btn-stop" class="btn btn-danger ta-action-btn" type="button" disabled>停止</button>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Steps Progress
+       ============================================================ -->
+  <section id="ta-steps-section" class="ta-section">
+    <div class="ta-card">
+      <div class="ta-card-header">
+        <span class="section-label">流程步骤</span>
+        <div class="ta-card-actions">
+          <span class="ta-step-click-hint">点击步骤可单步执行</span>
+          <span id="ta-progress-counter" class="ta-progress-counter">0 / 0</span>
+        </div>
+      </div>
+      <!-- Step Context Bar -->
+      <div id="ta-step-context" class="ta-step-context">
+        <div class="ta-ctx-item"><span class="ta-ctx-label">邮箱</span><span id="ctx-email" class="ta-ctx-value">未获取</span></div>
+        <div class="ta-ctx-item"><span class="ta-ctx-label">邀请链接</span><span id="ctx-invite-url" class="ta-ctx-value">未获取</span></div>
+      </div>
+      <div id="ta-steps-list" class="ta-steps-list">
+        <!-- Steps will be rendered dynamically -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       iCloud Aliases Section
+       ============================================================ -->
+  <section id="ta-icloud-section" class="ta-section">
+    <div class="ta-card">
+      <div class="ta-card-header">
+        <span class="section-label">iCloud 隐私邮箱</span>
+        <div class="ta-card-actions">
+          <button id="btn-icloud-refresh" class="btn btn-outline btn-xs" type="button">刷新列表</button>
+        </div>
+      </div>
+      <div id="ta-icloud-summary" class="ta-icloud-summary">点击"刷新列表"加载 iCloud 隐私邮箱</div>
+
+      <!-- Login Help (hidden by default) -->
+      <div id="ta-icloud-login-help" class="ta-icloud-login-help" style="display:none">
+        <div class="ta-icloud-login-text">
+          <strong id="ta-icloud-login-title">需要登录 iCloud</strong>
+          <p id="ta-icloud-login-desc">请在新打开的 iCloud 页面中完成登录，然后点击下方按钮。</p>
+        </div>
+        <button id="btn-icloud-login-done" class="btn btn-primary btn-sm" type="button">我已登录</button>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="ta-icloud-filter-bar">
+        <select id="ta-icloud-filter" class="ta-select">
+          <option value="all">全部</option>
+          <option value="unused">未用</option>
+          <option value="used">已用</option>
+          <option value="certified">已认证</option>
+        </select>
+        <input id="ta-icloud-search" class="ta-input ta-icloud-search-input" type="text" placeholder="搜索邮箱..." />
+      </div>
+
+      <!-- Alias List -->
+      <div id="ta-icloud-list" class="ta-icloud-list">
+        <div class="ta-icloud-empty">未加载 iCloud 隐私邮箱列表</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Log Section
+       ============================================================ -->
+  <section id="ta-log-section" class="ta-section">
+    <div class="ta-card">
+      <div class="ta-card-header">
+        <span class="section-label">运行日志</span>
+        <button id="btn-clear-log" class="btn btn-ghost btn-xs" type="button">清空</button>
+      </div>
+      <div id="ta-log-area" class="ta-log-area"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Toast Container
+       ============================================================ -->
+  <div id="toast-container"></div>
+
+  <!-- ============================================================
+       Scripts
+       ============================================================ -->
+  <script src="../icloud-utils.js"></script>
+  <script src="../mail-provider-utils.js"></script>
+  <script src="../data/step-definitions.js"></script>
+  <script src="team-auth-utils.js"></script>
+  <script src="team-auth-steps.js"></script>
+  <script src="team-auth-addon.js"></script>
+  <script src="team-auth-scheduler.js"></script>
+</body>
+
+</html>

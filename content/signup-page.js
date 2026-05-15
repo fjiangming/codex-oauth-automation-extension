@@ -2615,6 +2615,12 @@ function isStep5Ready() {
   );
 }
 
+// [CUSTOM] 组合表单支持：识别验证码+姓名/年龄同页表单
+function isCombinedVerificationProfilePage() {
+  // 组合表单：验证码输入框和姓名/年龄字段在同一页面上
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
+
 function isSignupProfilePageUrl(rawUrl = location.href) {
   const url = String(rawUrl || '').trim();
   if (!url) {
@@ -2627,7 +2633,8 @@ function isSignupProfilePageUrl(rawUrl = location.href) {
     if (!['auth.openai.com', 'auth0.openai.com', 'accounts.openai.com'].includes(host)) {
       return false;
     }
-    return /\/create-account\/profile(?:[/?#]|$)/i.test(String(parsed.pathname || ''));
+    return /\/create-account\/profile(?:[/?#]|$)/i.test(String(parsed.pathname || ''))
+      || /\/about-you(?:[/?#]|$)/i.test(String(parsed.pathname || '')); // [CUSTOM] 新增 /about-you 路径匹配
   } catch {
     return false;
   }
@@ -2705,13 +2712,23 @@ function isLikelyLoggedInChatgptHomeUrl(rawUrl = location.href) {
 
 function getStep4PostVerificationState(options = {}) {
   const { ignoreVerificationVisibility = false } = options;
+  // [CUSTOM] 如果已经在个人资料页面（URL 匹配），无论字段状态如何都视为已通过验证码阶段
+  if (isSignupProfilePageUrl()) {
+    return {
+      state: 'step5',
+      url: location.href,
+    };
+  }
   // Newer auth flows can briefly render profile fields before the email-verification
   // form fully exits. Do not advance to Step 5 while verification UI is still present.
   if (!ignoreVerificationVisibility && isVerificationPageStillVisible()) {
     return null;
   }
-
-  if (isStep5Ready() || isSignupProfilePageUrl()) {
+  // [CUSTOM] 组合表单上验证码和姓名/年龄同时存在，不能视为"已通过验证码阶段"
+  if (isCombinedVerificationProfilePage()) {
+    return null;
+  }
+  if (isStep5Ready()) {
     return {
       state: 'step5',
       url: location.href,
@@ -6103,14 +6120,57 @@ async function step5_fillNameBirthday(payload) {
   // - Age: <input name="age" type="text|number">
 
   // --- Full Name (single field, not first+last) ---
+  // [CUSTOM] 在等待姓名输入框出现前，循环检测并自动恢复 operation timeout 错误页面。
+  // about-you / create-account/profile 页面在加载时可能遇到 "operation timed out" 错误，
+  // 页面会显示重试按钮，需要自动点击重试后再等待输入框出现。
+  // 由于重试后可能仍然出现 timeout，这里采用循环式重试，最多尝试 MAX_STEP5_RETRY_ROUNDS 轮。
+  const STEP5_RETRY_PATH_PATTERNS = [
+    /\/create-account\/profile(?:[/?#]|$)/i,
+    /\/about-you(?:[/?#]|$)/i,
+  ];
+  const MAX_STEP5_RETRY_ROUNDS = 10;
   let nameInput = null;
-  try {
-    nameInput = await waitForElement(
-      'input[name="name"], input[placeholder*="全名"], input[autocomplete="name"]',
-      10000
-    );
-  } catch {
-    throw new Error('未找到姓名输入框。URL: ' + location.href);
+  let step5RetryRound = 0;
+
+  while (!nameInput) {
+    throwIfStopped();
+
+    // 检测是否处于 timeout 错误页面，如果是则点击重试恢复
+    const step5RetryState = getAuthTimeoutErrorPageState({ pathPatterns: STEP5_RETRY_PATH_PATTERNS });
+    if (step5RetryState) {
+      step5RetryRound += 1;
+      if (step5RetryRound > MAX_STEP5_RETRY_ROUNDS) {
+        throw new Error(`步骤 5：about-you 页面已连续重试 ${MAX_STEP5_RETRY_ROUNDS} 轮仍无法恢复。URL: ${location.href}`);
+      }
+      log(`步骤 5：检测到 about-you 页面出现错误（如 operation timeout），正在自动点击重试（第 ${step5RetryRound} 轮）...`, 'warn');
+      await recoverCurrentAuthRetryPage({
+        logLabel: `步骤 5：about-you 页面错误恢复（第 ${step5RetryRound} 轮）`,
+        maxClickAttempts: 5,
+        pathPatterns: STEP5_RETRY_PATH_PATTERNS,
+        step: 5,
+        timeoutMs: 30000,
+        waitAfterClickMs: 5000,
+      });
+      log(`步骤 5：about-you 页面错误已恢复（第 ${step5RetryRound} 轮），继续等待姓名输入框...`, 'ok');
+    }
+
+    // 等待姓名输入框出现
+    try {
+      nameInput = await waitForElement(
+        'input[name="name"], input[placeholder*="全名"], input[autocomplete="name"]',
+        10000
+      );
+    } catch {
+      // 等待超时后再检测是否又出现了 timeout 错误页面
+      const retryStateAfterWait = getAuthTimeoutErrorPageState({ pathPatterns: STEP5_RETRY_PATH_PATTERNS });
+      if (retryStateAfterWait) {
+        // 存在错误页面，循环回去继续重试
+        log('步骤 5：等待姓名输入框期间再次检测到错误页面，将继续重试...', 'warn');
+        continue;
+      }
+      // 没有检测到错误页面，说明页面状态异常，直接报错
+      throw new Error('未找到姓名输入框。URL: ' + location.href);
+    }
   }
   await humanPause(500, 1300);
   fillInput(nameInput, fullName);

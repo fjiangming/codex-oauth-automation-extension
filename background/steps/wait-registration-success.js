@@ -38,20 +38,57 @@
     return `https://${host}${path}`;
   }
 
+  // [CUSTOM] 无痕窗口兼容：仅收集非无痕 cookie store，避免清除无痕窗口中的主账号登录态
+  async function getStep6NonIncognitoStoreIds(chromeApi) {
+    if (!chromeApi.cookies?.getAllCookieStores) return ['0'];
+    const stores = await chromeApi.cookies.getAllCookieStores();
+    const nonIncognitoIds = [];
+
+    for (const store of stores) {
+      const storeId = store?.id;
+      if (!storeId) continue;
+
+      // 默认 store "0" 始终是非无痕
+      if (storeId === '0') {
+        nonIncognitoIds.push(storeId);
+        continue;
+      }
+
+      // 通过关联的 tab 判断窗口是否无痕
+      const tabIds = store.tabIds || [];
+      let isIncognito = false;
+      for (const tabId of tabIds) {
+        try {
+          const tab = await chromeApi.tabs.get(tabId);
+          if (tab.incognito) {
+            isIncognito = true;
+            break;
+          }
+        } catch {
+          // tab 可能已关闭，忽略
+        }
+      }
+
+      if (!isIncognito) {
+        nonIncognitoIds.push(storeId);
+      }
+    }
+
+    return nonIncognitoIds.length ? nonIncognitoIds : ['0'];
+  }
+
   async function collectStep6Cookies(chromeApi) {
     if (!chromeApi.cookies?.getAll) {
       return [];
     }
 
-    const stores = chromeApi.cookies.getAllCookieStores
-      ? await chromeApi.cookies.getAllCookieStores()
-      : [{ id: undefined }];
+    // [CUSTOM] 使用 getStep6NonIncognitoStoreIds 替换原始的 getAllCookieStores 遍历
+    const nonIncognitoStoreIds = await getStep6NonIncognitoStoreIds(chromeApi);
     const cookies = [];
     const seen = new Set();
 
-    for (const store of stores) {
-      const storeId = store?.id;
-      const batch = await chromeApi.cookies.getAll(storeId ? { storeId } : {});
+    for (const storeId of nonIncognitoStoreIds) { // [CUSTOM] 原始代码遍历 stores 对象
+      const batch = await chromeApi.cookies.getAll({ storeId });
       for (const cookie of batch || []) {
         if (!shouldClearStep6Cookie(cookie)) continue;
         const key = [
@@ -124,16 +161,8 @@
           }
         }
 
-        if (chromeApi.browsingData?.removeCookies) {
-          try {
-            await chromeApi.browsingData.removeCookies({
-              since: 0,
-              origins: STEP6_COOKIE_CLEAR_ORIGINS,
-            });
-          } catch (error) {
-            await addLog(`步骤 6：browsingData 补扫 cookies 失败：${getErrorMessage(error)}`, 'warn');
-          }
-        }
+        // [CUSTOM] 注意：不使用 browsingData.removeCookies 补扫，因为它无法区分无痕与非无痕，
+        // 会清除无痕窗口中的主账号登录态。上面的逐 store 清理已覆盖非无痕 cookies。
 
         await addLog(`步骤 6：已清理 ${removedCount} 个 ChatGPT / OpenAI cookies。`, 'ok');
       } catch (error) {

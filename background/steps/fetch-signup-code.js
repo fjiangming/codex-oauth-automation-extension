@@ -30,6 +30,8 @@
       waitForTabStableComplete = null,
       phoneVerificationHelpers = null,
       resolveSignupMethod = () => 'email',
+      ensureContentScriptReadyOnTab = null, // [CUSTOM] 确保 content script 在导航后的页面上已注入
+      SIGNUP_PAGE_INJECT_FILES = null, // [CUSTOM] content script 注入文件列表
     } = deps;
 
     function buildSignupProfileForVerificationStep() {
@@ -130,6 +132,23 @@
         });
       }
       throwIfStopped();
+
+      // [CUSTOM] 页面导航后动态注入的 content script 会被销毁，
+      // 如果新页面不在 manifest content_scripts 的 matches 范围内（如 chatgpt.com），
+      // 需要手动重新注入，否则 PREPARE_SIGNUP_VERIFICATION 消息无人接收（返回 undefined）。
+      if (typeof ensureContentScriptReadyOnTab === 'function' && SIGNUP_PAGE_INJECT_FILES) {
+        await addLog('步骤 4：确保注册页 content script 已就绪...', 'info');
+        await ensureContentScriptReadyOnTab('signup-page', signupTabId, {
+          inject: SIGNUP_PAGE_INJECT_FILES,
+          injectSource: 'signup-page',
+          timeoutMs: 15000,
+          logMessage: '步骤 4：注册页 content script 未就绪，正在重新注入...',
+          logStep: 4,
+          logStepKey: 'fetch-signup-code',
+        });
+      }
+      throwIfStopped();
+
       await addLog('步骤 4：正在确认注册验证码页面是否就绪，必要时自动恢复密码页超时报错...');
 
       const prepareRequest = {

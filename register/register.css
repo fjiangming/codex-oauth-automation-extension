@@ -1,0 +1,983 @@
+/* ============================================================
+   Team Auth Addon — Independent Page Styles
+   复用原项目 CSS 变量保持一致性
+   ============================================================ */
+
+/* ---- Light Theme (default) ---- */
+:root {
+  --bg-base: #ffffff;
+  --bg-surface: #f7f8fa;
+  --bg-elevated: #eef0f4;
+  --bg-hover: #e4e7ec;
+  --bg-active: #dce0e8;
+
+  --border: #d8dce3;
+  --border-subtle: #e8ecf1;
+
+  --text-primary: #1a1d24;
+  --text-secondary: #5c6370;
+  --text-muted: #9ca3af;
+
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.08);
+  --blue-glow: rgba(37, 99, 235, 0.12);
+  --green: #16a34a;
+  --green-soft: rgba(22, 163, 74, 0.08);
+  --orange: #ea580c;
+  --orange-soft: rgba(234, 88, 12, 0.08);
+  --amber: #d97706;
+  --amber-soft: rgba(217, 119, 6, 0.08);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.08);
+  --cyan: #0891b2;
+  --purple: #7c3aed;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 6px rgba(0,0,0,0.06);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --transition: 150ms ease;
+}
+
+/* ---- Dark Theme ---- */
+[data-theme="dark"] {
+  --bg-base: #0f1117;
+  --bg-surface: #181a21;
+  --bg-elevated: #21242d;
+  --bg-hover: #2a2e38;
+  --bg-active: #323844;
+
+  --border: #2a2e38;
+  --border-subtle: #21242d;
+
+  --text-primary: #e4e6eb;
+  --text-secondary: #8b919e;
+  --text-muted: #565c6a;
+
+  --blue: #3b82f6;
+  --blue-soft: rgba(59, 130, 246, 0.12);
+  --blue-glow: rgba(59, 130, 246, 0.18);
+  --green: #22c55e;
+  --green-soft: rgba(34, 197, 94, 0.12);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.12);
+  --amber: #f59e0b;
+  --amber-soft: rgba(245, 158, 11, 0.12);
+  --red: #ef4444;
+  --red-soft: rgba(239, 68, 68, 0.12);
+  --cyan: #06b6d4;
+  --purple: #a78bfa;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  padding: 16px 20px;
+  max-width: 680px;
+  margin: 0 auto;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ta-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ta-header-left svg {
+  color: var(--blue);
+  flex-shrink: 0;
+}
+
+.ta-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ta-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.ta-header-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ta-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   Theme Toggle (copied from original for standalone)
+   ============================================================ */
+
+.theme-toggle {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.theme-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.theme-toggle .icon-moon { display: block; }
+.theme-toggle .icon-sun { display: none; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+
+/* ============================================================
+   Buttons (standalone subset)
+   ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover { opacity: 0.9; box-shadow: 0 2px 8px var(--blue-glow); }
+
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover { opacity: 0.9; box-shadow: 0 2px 8px var(--green-soft); }
+
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { opacity: 0.9; box-shadow: 0 2px 8px var(--red-soft); }
+
+.btn-ghost { background: transparent; color: var(--text-secondary); padding: 6px; border-radius: var(--radius-sm); }
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
+.btn-outline:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+.btn-xs { padding: 4px 10px; font-size: 11px; }
+
+.btn:disabled { background: var(--bg-elevated); color: var(--text-muted); cursor: not-allowed; box-shadow: none; border-color: transparent; }
+.btn-outline:disabled { background: transparent; border-color: var(--border); color: var(--text-muted); }
+
+/* ============================================================
+   Section & Card
+   ============================================================ */
+
+.ta-section {
+  margin-bottom: 14px;
+}
+
+.ta-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.ta-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.ta-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================
+   Config Rows
+   ============================================================ */
+
+.ta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-label {
+  flex: 0 0 72px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ta-controls {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ta-input {
+  width: 60px;
+  padding: 5px 6px;
+  text-align: center;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.ta-input:focus { border-color: var(--blue); }
+.ta-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.ta-input::-webkit-inner-spin-button { opacity: 0.5; }
+
+.ta-select {
+  padding: 5px 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.ta-select:focus { border-color: var(--blue); }
+
+.ta-unit {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ta-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+   Mode Buttons
+   ============================================================ */
+
+.ta-mode-group {
+  display: flex;
+  gap: 4px;
+}
+
+.ta-mode-btn.is-active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
+/* ============================================================
+   Actions
+   ============================================================ */
+
+.ta-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-action-btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* ============================================================
+   Steps List
+   ============================================================ */
+
+.ta-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ta-progress-counter {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ta-step-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.ta-step-row + .ta-step-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ta-step-row.is-running {
+  background: var(--blue-soft);
+}
+
+.ta-step-row.is-done {
+  opacity: 0.7;
+}
+
+.ta-step-row.is-error {
+  background: var(--red-soft);
+}
+
+.ta-step-row.is-skipped {
+  opacity: 0.5;
+}
+
+.ta-step-indicator {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  transition: all var(--transition);
+}
+
+.ta-step-row.is-running .ta-step-indicator {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+  animation: ta-pulse 1.5s ease-in-out infinite;
+}
+
+.ta-step-row.is-done .ta-step-indicator {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+.ta-step-row.is-error .ta-step-indicator {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+.ta-step-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.ta-step-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ta-step-row.is-running .ta-step-status { color: var(--blue); }
+.ta-step-row.is-done .ta-step-status { color: var(--green); }
+.ta-step-row.is-error .ta-step-status { color: var(--red); }
+
+.ta-step-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.ta-step-tag.is-new {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+/* ============================================================
+   iCloud Section
+   ============================================================ */
+
+.ta-icloud-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ta-icloud-login-help {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 8%, var(--bg-base));
+}
+
+.ta-icloud-login-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ta-icloud-login-text strong {
+  font-size: 13px;
+  color: var(--amber);
+}
+
+.ta-icloud-login-text p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.ta-icloud-filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ta-icloud-search-input {
+  flex: 1;
+  width: auto;
+  text-align: left;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.ta-icloud-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.ta-icloud-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ta-icloud-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  transition: background var(--transition);
+}
+
+.ta-icloud-item:hover {
+  background: var(--bg-hover);
+}
+
+.ta-icloud-item + .ta-icloud-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ta-icloud-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ta-icloud-item-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ta-icloud-item-meta {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ta-icloud-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.ta-icloud-tag.used { background: var(--red-soft); color: var(--red); }
+.ta-icloud-tag.active { background: var(--green-soft); color: var(--green); }
+.ta-icloud-tag.certified { background: var(--blue-soft); color: var(--blue); }
+
+/* ============================================================
+   Log Area
+   ============================================================ */
+
+.ta-log-area {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.ta-log-area:empty::before {
+  content: '暂无日志';
+  color: var(--text-muted);
+}
+
+.ta-log-line {
+  display: flex;
+  gap: 6px;
+  word-break: break-all;
+}
+
+.ta-log-line + .ta-log-line {
+  margin-top: 2px;
+}
+
+.ta-log-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.ta-log-line.is-ok .ta-log-msg { color: var(--green); }
+.ta-log-line.is-warn .ta-log-msg { color: var(--amber); }
+.ta-log-line.is-error .ta-log-msg { color: var(--red); }
+.ta-log-line.is-info .ta-log-msg { color: var(--text-secondary); }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+
+#toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast-item {
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: ta-toast-in 0.25s ease-out;
+}
+
+.toast-item.is-success { background: var(--green); }
+.toast-item.is-error { background: var(--red); }
+.toast-item.is-warn { background: var(--amber); }
+.toast-item.is-info { background: var(--blue); }
+
+@keyframes ta-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   Clickable Step Rows
+   ============================================================ */
+
+.ta-step-row.is-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ta-step-row.is-clickable:hover {
+  background: var(--bg-hover);
+}
+
+.ta-step-row.is-clickable:active {
+  background: var(--bg-active);
+}
+
+.ta-step-row.is-clickable.is-running {
+  cursor: wait;
+  pointer-events: none;
+}
+
+.ta-step-click-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ============================================================
+   Step Context Bar
+   ============================================================ */
+
+.ta-step-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.ta-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ta-ctx-label {
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ta-ctx-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+/* ============================================================
+   Animations
+   ============================================================ */
+
+@keyframes ta-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--blue-glow); }
+  50% { box-shadow: 0 0 0 4px var(--blue-glow); }
+}
+
+/* ============================================================
+   Team Auth Scheduler Panel
+   ============================================================ */
+
+.ta-scheduler-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* ---- Collapse Header ---- */
+
+.ta-scheduler-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.ta-scheduler-header:hover {
+  background: var(--bg-hover);
+}
+
+.ta-scheduler-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ta-scheduler-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.ta-scheduler-badge[data-state="idle"]     { background: var(--bg-elevated); color: var(--text-muted); }
+.ta-scheduler-badge[data-state="running"]  { background: var(--green-soft);  color: var(--green); }
+.ta-scheduler-badge[data-state="waiting"]  { background: var(--amber-soft);  color: var(--amber); }
+.ta-scheduler-badge[data-state="stopping"] { background: var(--red-soft);    color: var(--red); }
+
+.ta-scheduler-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.ta-scheduler-card.is-expanded .ta-scheduler-chevron {
+  transform: rotate(180deg);
+}
+
+/* ---- Body ---- */
+
+.ta-scheduler-body {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ta-scheduler-card.is-expanded .ta-scheduler-body {
+  display: flex;
+}
+
+/* ---- Config Rows ---- */
+
+.ta-scheduler-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-scheduler-label {
+  flex: 0 0 72px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ta-scheduler-controls {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ---- Toggle Switch ---- */
+
+.ta-scheduler-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.ta-scheduler-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ta-scheduler-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: background var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+}
+
+.ta-scheduler-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.ta-scheduler-toggle input:checked + .ta-scheduler-toggle-track {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+
+.ta-scheduler-toggle input:checked + .ta-scheduler-toggle-track .ta-scheduler-toggle-thumb {
+  transform: translateX(14px);
+  background: var(--blue);
+}
+
+/* ---- Actions ---- */
+
+.ta-scheduler-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.ta-scheduler-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* ---- Status Display ---- */
+
+.ta-scheduler-status {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  display: none;
+}
+
+.ta-scheduler-status.is-visible {
+  display: block;
+}
+
+.ta-scheduler-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ta-scheduler-status-line + .ta-scheduler-status-line {
+  margin-top: 4px;
+}
+
+.ta-scheduler-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ta-scheduler-status-dot.is-running {
+  background: var(--green);
+  animation: ta-scheduler-pulse 1.5s ease-in-out infinite;
+}
+
+.ta-scheduler-status-dot.is-waiting {
+  background: var(--amber);
+  animation: ta-scheduler-pulse 2s ease-in-out infinite;
+}
+
+.ta-scheduler-status-dot.is-idle {
+  background: var(--text-muted);
+}
+
+.ta-scheduler-countdown {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ta-scheduler-stats {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+@keyframes ta-scheduler-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+

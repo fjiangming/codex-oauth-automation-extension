@@ -130,6 +130,10 @@ function log(message, level = 'info') {
   logs.push({ message, level });
 }
 
+function throwIfStopped() {}
+function getAuthTimeoutErrorPageState() { return null; }
+async function recoverCurrentAuthRetryPage() { return { recovered: false, clickCount: 0, url: '' }; }
+
 async function waitForElement() {
   return nameInput;
 }

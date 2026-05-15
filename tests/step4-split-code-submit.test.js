@@ -348,6 +348,8 @@ function getActionText(el) { return el.textContent || ''; }
 async function humanPause() {}
 function simulateClick(el) { el.click(); clicks.push(el.textContent); }
 function getCurrentAuthRetryPageState() { return null; }
+function getAuthTimeoutErrorPageState() { return null; }
+async function recoverCurrentAuthRetryPage() { return { recovered: false, clickCount: 0, url: '' }; }
 function isPhoneVerificationPageReady() { return false; }
 function findResendVerificationCodeTrigger() { return null; }
 function isEmailVerificationPage() { return true; }
@@ -544,6 +546,8 @@ function getActionText(el) { return el.textContent || ''; }
 async function humanPause() {}
 function simulateClick(el) { el.click(); clicks.push(el.textContent); }
 function getCurrentAuthRetryPageState() { return null; }
+function getAuthTimeoutErrorPageState() { return null; }
+async function recoverCurrentAuthRetryPage() { return { recovered: false, clickCount: 0, url: '' }; }
 function isPhoneVerificationPageReady() { return false; }
 function findResendVerificationCodeTrigger() { return null; }
 function isEmailVerificationPage() { return true; }

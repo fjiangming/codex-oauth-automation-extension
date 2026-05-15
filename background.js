@@ -10617,7 +10617,9 @@ const phoneVerificationHelpers = self.MultiPageBackgroundPhoneVerification?.crea
 const step1Executor = self.MultiPageBackgroundStep1?.createStep1Executor({
   addLog,
   completeStepFromBackground,
+  getState,
   openSignupEntryTab,
+  setState,
 });
 const step2Executor = self.MultiPageBackgroundStep2?.createStep2Executor({
   addLog,
@@ -10686,6 +10688,8 @@ const step4Executor = self.MultiPageBackgroundStep4?.createStep4Executor({
   waitForTabStableComplete,
   phoneVerificationHelpers,
   resolveSignupMethod,
+  ensureContentScriptReadyOnTab, // [CUSTOM] 步骤4导航后重新注入 content script
+  SIGNUP_PAGE_INJECT_FILES, // [CUSTOM] content script 注入文件列表
 });
 const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
   addLog,

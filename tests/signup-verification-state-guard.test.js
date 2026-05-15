@@ -105,6 +105,11 @@ const location = {
 function isStep5Ready() {
   return false;
 }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 
 function isVerificationPageStillVisible() {
   return true;
@@ -164,6 +169,11 @@ function getAuthTimeoutErrorPageState(options) {
 function isStep5Ready() {
   return false;
 }
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
+}
 
 function isVerificationPageStillVisible() {
   return true;
@@ -211,6 +221,11 @@ const location = {
 
 function isStep5Ready() {
   return false;
+}
+// [CUSTOM] 组合表单 mock 函数
+function getVerificationCodeTarget() { return null; }
+function isCombinedVerificationProfilePage() {
+  return Boolean(getVerificationCodeTarget()) && isStep5Ready();
 }
 
 function isVerificationPageStillVisible() {

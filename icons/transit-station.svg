@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Transit station icon</title>
+  <desc id="desc">A central transfer hub with two curved arrows showing inbound and outbound movement.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="14" x2="110" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c163a"/>
+      <stop offset="1" stop-color="#18376d"/>
+    </linearGradient>
+    <linearGradient id="station" x1="45" y1="42" x2="83" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d8f4ff"/>
+    </linearGradient>
+    <linearGradient id="routeTop" x1="28" y1="41" x2="101" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#75e6ff"/>
+      <stop offset="1" stop-color="#4f86ff"/>
+    </linearGradient>
+    <linearGradient id="routeBottom" x1="100" y1="87" x2="27" y2="95" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6ee7ff"/>
+      <stop offset="1" stop-color="#4f86ff"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(64 64) scale(1.10) translate(-64 -64)">
+    <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
+    <path d="M29 43 C47 23 78 20 96 36" fill="none" stroke="url(#routeTop)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M100 87 C82 107 51 110 32 94" fill="none" stroke="url(#routeBottom)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M101 36 L89 30 L94 44 Z" fill="#5b9cff"/>
+    <path d="M27 93 L40 88 L34 102 Z" fill="#67e5ff"/>
+
+    <rect x="45" y="47" width="40" height="42" rx="11" fill="#000000" opacity=".24"/>
+    <rect x="43" y="43" width="42" height="42" rx="11" fill="url(#station)" stroke="#7eeaff" stroke-width="3"/>
+    <path d="M64 52 V76 M52 64 H76" fill="none" stroke="#1b3165" stroke-width="4.5" stroke-linecap="round"/>
+    <circle cx="64" cy="64" r="10" fill="#1f68ff"/>
+    <circle cx="64" cy="64" r="3.5" fill="#dff8ff"/>
+  </g>
+</svg>
