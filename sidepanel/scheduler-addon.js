@@ -109,6 +109,36 @@
       if (elRunsInput && Number.isFinite(runs)) elRunsInput.value = String(runs);
       if (elAutoSkipToggle && autoSkip !== null) elAutoSkipToggle.checked = autoSkip === '1';
     } catch (_) { /* ignore */ }
+
+    // 从 chrome.storage.local 读取 config.json 注入的调度器配置作为初始默认值
+    try {
+      chrome.storage.local.get([
+        'schedulerIntervalMinutes',
+        'schedulerRunsPerBatch',
+        'schedulerAutoSkipEmailFailure',
+      ]).then((configData) => {
+        // 仅当 localStorage 中没有用户手动设置的值时，才使用 config.json 的默认值
+        if (elIntervalInput && !localStorage.getItem(STORAGE_KEYS.intervalMinutes)) {
+          const cfgInterval = parseInt(configData.schedulerIntervalMinutes, 10);
+          if (Number.isFinite(cfgInterval) && cfgInterval >= MIN_INTERVAL_MINUTES) {
+            elIntervalInput.value = String(Math.min(MAX_INTERVAL_MINUTES, cfgInterval));
+          }
+        }
+        if (elRunsInput && !localStorage.getItem(STORAGE_KEYS.runsPerBatch)) {
+          const cfgRuns = parseInt(configData.schedulerRunsPerBatch, 10);
+          if (Number.isFinite(cfgRuns) && cfgRuns >= MIN_RUNS_PER_BATCH) {
+            elRunsInput.value = String(Math.min(MAX_RUNS_PER_BATCH, cfgRuns));
+          }
+        }
+        if (elAutoSkipToggle && localStorage.getItem(STORAGE_KEYS.autoSkipEmailFailure) === null) {
+          if (configData.schedulerAutoSkipEmailFailure === true || configData.schedulerAutoSkipEmailFailure === 'true') {
+            elAutoSkipToggle.checked = true;
+          } else if (configData.schedulerAutoSkipEmailFailure === false || configData.schedulerAutoSkipEmailFailure === 'false') {
+            elAutoSkipToggle.checked = false;
+          }
+        }
+      }).catch(() => { /* ignore */ });
+    } catch (_) { /* ignore */ }
   }
 
   function saveSchedulerState() {

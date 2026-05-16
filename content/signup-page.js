@@ -4593,14 +4593,35 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
 }
 
 
-async function waitForVerificationSubmitOutcome(step, timeout) {
+async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
   const resolvedTimeout = timeout ?? (step === 8 ? 30000 : 12000);
   const start = Date.now();
   let recoveryCount = 0;
   const maxRecoveryCount = 2;
+  const combinedPage = Boolean(options.combinedPage);
+  // 记录提交前的 URL，用于检测合并页面表单提交后的页面导航
+  const urlBeforeSubmit = location.href;
 
   while (Date.now() - start < resolvedTimeout) {
     throwIfStopped();
+
+    // [CUSTOM] 合并页面：检测 URL 是否发生变化（表单提交导致页面导航）
+    if (combinedPage && location.href !== urlBeforeSubmit) {
+      log(`步骤 ${step}：合并注册页面提交后 URL 已变化，按成功处理。`, 'ok');
+      return { success: true };
+    }
+
+    // [CUSTOM] 合并页面：检测验证码输入框是否已从页面消失（React 重新渲染后移除）
+    if (combinedPage && !getVerificationCodeTarget()) {
+      log(`步骤 ${step}：合并注册页面提交后验证码输入框已消失，按成功处理。`, 'ok');
+      return { success: true };
+    }
+
+    // [CUSTOM] 合并页面：检测是否已不再是合并表单页面（名字/年龄字段消失）
+    if (combinedPage && !isCombinedSignupVerificationProfilePage()) {
+      log(`步骤 ${step}：合并注册页面提交后页面已不再是合并表单，按成功处理。`, 'ok');
+      return { success: true };
+    }
 
     const retryFlow = step === 4 ? 'signup' : 'login';
     const retryState = getCurrentAuthRetryPageState(retryFlow);
@@ -4677,6 +4698,17 @@ async function waitForVerificationSubmitOutcome(step, timeout) {
     }
   }
 
+  // [CUSTOM] 合并页面超时后：如果没有真正的验证码错误消息，按成功推定处理，
+  // 避免因合并页面的 DOM 结构导致误判为 invalidCode 而触发验证码重发循环
+  if (combinedPage) {
+    const finalErrorText = getVerificationErrorText();
+    if (finalErrorText) {
+      return { invalidCode: true, errorText: finalErrorText };
+    }
+    log(`步骤 ${step}：合并注册页面提交后超时，但未检测到验证码错误消息，按成功推定处理。`, 'warn');
+    return { success: true, assumed: true };
+  }
+
   if (isVerificationPageStillVisible()) {
     return {
       invalidCode: true,
@@ -4690,8 +4722,15 @@ async function waitForVerificationSubmitOutcome(step, timeout) {
 function getVerificationSubmitButtonForTarget(codeInput, options = {}) {
   const { allowDisabled = false } = options;
   const form = codeInput?.form || codeInput?.closest?.('form') || null;
+  const formId = form?.id || '';
   const isUsableAction = (element) => {
     if (!element || !isVisibleElement(element)) return false;
+    // [CUSTOM] 跳过 form 属性指向其他表单的按钮（如合并页面中"重新发送电子邮件"按钮
+    // 虽然在主表单 DOM 子树中，但 form 属性指向 passwordless-signup-register-resend）
+    const elementFormAttr = element.getAttribute?.('form') || '';
+    if (elementFormAttr && formId && elementFormAttr !== formId) {
+      return false;
+    }
     return allowDisabled || isActionEnabled(element);
   };
 
@@ -4903,7 +4942,7 @@ async function fillVerificationCode(step, payload) {
       log(`步骤 ${step}：分格验证码页面未找到可点击提交按钮，继续等待页面自动推进。`, 'info');
     }
 
-    const outcome = await waitForVerificationSubmitOutcome(step);
+    const outcome = await waitForVerificationSubmitOutcome(step, undefined, { combinedPage: combinedSignupProfilePage });
     if (outcome.invalidCode) {
       log(`步骤 ${step}：验证码被拒绝：${outcome.errorText}`, 'warn');
     } else if (outcome.addPhonePage) {
@@ -4938,7 +4977,7 @@ async function fillVerificationCode(step, payload) {
     log(`步骤 ${step}：未找到可提交的验证码按钮，先等待页面自动推进或反馈结果。`, 'warn');
   }
 
-  const outcome = await waitForVerificationSubmitOutcome(step);
+  const outcome = await waitForVerificationSubmitOutcome(step, undefined, { combinedPage: combinedSignupProfilePage });
   if (outcome.invalidCode) {
     log(`步骤 ${step}：验证码被拒绝：${outcome.errorText}`, 'warn');
   } else if (outcome.addPhonePage) {

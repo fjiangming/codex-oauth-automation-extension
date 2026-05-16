@@ -138,6 +138,7 @@ ${extractFunction('isCombinedSignupVerificationProfilePage')}
 ${extractFunction('waitForCombinedSignupVerificationProfilePage')}
 ${extractFunction('isSignupProfilePageUrl')}
 ${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
+function isCombinedVerificationProfilePage() { return false; }
 ${extractFunction('getStep4PostVerificationState')}
 ${extractFunction('fillVerificationCode')}
 
@@ -783,6 +784,7 @@ ${extractFunction('isSignupVerificationPageInteractiveReady')}
 ${extractFunction('isVerificationPageStillVisible')}
 ${extractFunction('isSignupProfilePageUrl')}
 ${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
+function isCombinedVerificationProfilePage() { return false; }
 ${extractFunction('getStep4PostVerificationState')}
 ${extractFunction('inspectSignupVerificationState')}
 ${extractFunction('waitForSignupVerificationTransition')}

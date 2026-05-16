@@ -252,6 +252,8 @@ function getSignupPasswordSubmitButton() {
   return null;
 }
 
+function getVerificationCodeTarget() { return null; }
+function isCombinedVerificationProfilePage() { return false; }
 ${extractFunction('isSignupProfilePageUrl')}
 ${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
 ${extractFunction('getStep4PostVerificationState')}
@@ -307,6 +309,8 @@ function getSignupPasswordFieldErrorText() {
   return 'Incorrect phone number or password';
 }
 
+function getVerificationCodeTarget() { return null; }
+function isCombinedVerificationProfilePage() { return false; }
 ${extractFunction('isSignupProfilePageUrl')}
 ${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
 ${extractFunction('getStep4PostVerificationState')}
@@ -361,6 +365,8 @@ function getSignupPasswordSubmitButton() {
   return null;
 }
 
+function getVerificationCodeTarget() { return { type: 'single', element: {} }; }
+function isCombinedVerificationProfilePage() { return true; }
 ${extractFunction('isSignupProfilePageUrl')}
 ${extractFunction('isLikelyLoggedInChatgptHomeUrl')}
 ${extractFunction('getStep4PostVerificationState')}

@@ -12473,3 +12473,62 @@ if (IP_PROXY_INIT_AUTO_APPLY) {
 ensureIpProxyAutoSyncAlarm().catch((err) => {
   console.error(LOG_PREFIX, 'Failed to restore IP proxy auto sync alarm:', err);
 });
+
+// ============================================================
+// [CUSTOM] Config File Injection — 通过 config.json 预配置（支持 Linux 无头环境及本地插件加载）
+// ============================================================
+// 启动时自动读取扩展目录下的 config.json，将配置写入 chrome.storage.local。
+// 默认行为：每次启动都用 config.json 的值覆盖 storage（确保配置文件始终是权威来源）。
+// 如果希望仅写入 storage 中尚不存在的键（不覆盖已有值），可在 config.json 中设置 _forceOverwrite: false。
+// 使用方法：编辑 config.json → 重启 Chrome 或重新加载扩展
+(async function loadConfigFile() {
+  const CONFIG_LOG = '[config-loader]';
+  try {
+    const configUrl = chrome.runtime.getURL('config.json');
+    const resp = await fetch(configUrl);
+    if (!resp.ok) {
+      console.log(CONFIG_LOG, 'config.json not found or not readable, skipping.');
+      return;
+    }
+    const raw = await resp.json();
+    if (!raw || typeof raw !== 'object') {
+      console.warn(CONFIG_LOG, 'config.json is empty or invalid, skipping.');
+      return;
+    }
+
+    // 过滤掉注释字段和空值
+    const entries = Object.entries(raw).filter(([key, value]) => {
+      if (key.startsWith('_')) return false;           // _comment, _usage 等注释字段
+      if (value === '' || value === null) return false; // 空值不写入
+      return true;
+    });
+
+    if (entries.length === 0) {
+      console.log(CONFIG_LOG, 'No actionable config entries in config.json.');
+      return;
+    }
+
+    const configPayload = Object.fromEntries(entries);
+    // 默认始终覆盖；显式设置 _forceOverwrite: false 可切回仅写入新键的模式
+    const skipExisting = raw._forceOverwrite === false;
+
+    if (skipExisting) {
+      // 保守模式：只写入 storage 中尚不存在的 key
+      const existingKeys = Object.keys(await chrome.storage.local.get(Object.keys(configPayload)));
+      const newEntries = entries.filter(([key]) => !existingKeys.includes(key));
+      if (newEntries.length > 0) {
+        await chrome.storage.local.set(Object.fromEntries(newEntries));
+        console.log(CONFIG_LOG, `Applied ${newEntries.length} new config entries from config.json:`, newEntries.map(([k]) => k));
+      }
+      if (newEntries.length < entries.length) {
+        console.log(CONFIG_LOG, `Skipped ${entries.length - newEntries.length} entries (already exist in storage).`);
+      }
+    } else {
+      // 默认模式：直接写入所有配置，确保 config.json 是权威来源
+      await chrome.storage.local.set(configPayload);
+      console.log(CONFIG_LOG, `Applied ${entries.length} config entries from config.json:`, Object.keys(configPayload));
+    }
+  } catch (err) {
+    console.error(CONFIG_LOG, 'Failed to load config.json:', err?.message || err);
+  }
+})();
