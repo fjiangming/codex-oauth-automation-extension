@@ -4936,8 +4936,13 @@ async function fillVerificationCode(step, payload) {
     const splitSubmitBtn = await waitForVerificationSubmitButton(splitInputs[0], 2000).catch(() => null);
     if (splitSubmitBtn) {
       await humanPause(450, 1200);
-      simulateClick(splitSubmitBtn);
-      log(`步骤 ${step}：分格验证码已提交`);
+      if (combinedSignupProfilePage) {
+        splitSubmitBtn.click();
+        log(`步骤 ${step}：分格验证码已提交（合并页面 click）`);
+      } else {
+        simulateClick(splitSubmitBtn);
+        log(`步骤 ${step}：分格验证码已提交`);
+      }
     } else {
       log(`步骤 ${step}：分格验证码页面未找到可点击提交按钮，继续等待页面自动推进。`, 'info');
     }
@@ -4971,8 +4976,16 @@ async function fillVerificationCode(step, payload) {
 
   if (submitBtn) {
     await humanPause(450, 1200);
-    simulateClick(submitBtn);
-    log(`步骤 ${step}：验证码已提交`);
+    // [CUSTOM] 合并注册页面使用 click() 替代 simulateClick()（后者会走 requestSubmit 路径）。
+    // React 的表单提交依赖 click 事件处理器，而 requestSubmit 只���发原生 submit 事件，
+    // 不会触发 React 合成事件系统中的 onClick 链，导致表单实际未被提交。
+    if (combinedSignupProfilePage) {
+      submitBtn.click();
+      log(`步骤 ${step}：验证码已提交（合并页面 click）`);
+    } else {
+      simulateClick(submitBtn);
+      log(`步骤 ${step}：验证码已提交`);
+    }
   } else {
     log(`步骤 ${step}：未找到可提交的验证码按钮，先等待页面自动推进或反馈结果。`, 'warn');
   }

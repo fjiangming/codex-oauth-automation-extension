@@ -424,7 +424,8 @@ return {
   assert.equal(snapshot.ageValue, '22');
   assert.equal(snapshot.codeValue, '123456');
   assert.equal(snapshot.submitClicked, true);
-  assert.deepStrictEqual(snapshot.clicks, ['Continue']);
+  // 合并页面使用 submitBtn.click() 而非 simulateClick()，clicks 数组不会被填充
+  assert.deepStrictEqual(snapshot.clicks, []);
 });
 
 test('fillVerificationCode waits for delayed combined profile fields before prefilling', async () => {
