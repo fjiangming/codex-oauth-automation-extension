@@ -20,11 +20,11 @@
   // 配置
   // ============================================================
 
-  /** Workspace 选择页的文本特征（中/英双语） */
-  const WS_TEXT_PATTERN = /选择.*(?:工作空间|workspace)|choose.*(?:workspace|account)|select.*(?:workspace|account)/i;
+  /** Workspace 选择页的文本特征（中/英/繁体双语） */
+  const WS_TEXT_PATTERN = /[选選][择擇].*(?:工作空[间間]|workspace)|choose.*(?:workspace|account)|select.*(?:workspace|account)/i;
 
   /** 「继续」按钮的文本特征 */
-  const CONTINUE_PATTERN = /^(?:继续|continue|下一步|next)$/i;
+  const CONTINUE_PATTERN = /^(?:继续|繼續|continue|下一步|next)$/i;
 
   /**
    * 需要排除的页面（不应介入）
@@ -35,7 +35,7 @@
   const ADD_PHONE_MARKER = /add.*phone|添加.*手机|phone.*number/i;
 
   /** 「个人帐户」选项的文本特征（中/英双语，兼容「帐户」和「账户」） */
-  const PERSONAL_ACCOUNT_PATTERN = /个人(?:帐户|账户)|personal\s*account/i;
+  const PERSONAL_ACCOUNT_PATTERN = /[个個]人(?:[帐賬帳][户戶]|account)|personal\s*account/i;
 
   /** 防抖：两次自动点击之间的最小间隔（ms） */
   const CLICK_COOLDOWN_MS = 5000;
