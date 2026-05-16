@@ -55,7 +55,7 @@
         source: 'background',
         payload: {},
       }, {
-        timeoutMs: 60000,
+        timeoutMs: 30000,
         retryDelayMs: 700,
         logMessage: `步骤 ${step}：官网注册入口正在切换，等待页面恢复...`,
       });

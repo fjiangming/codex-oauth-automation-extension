@@ -83,7 +83,7 @@
           source: 'background',
           payload: {},
         }, {
-          timeoutMs: 30000,
+          timeoutMs: 20000,
           retryDelayMs: 500,
           logMessage: '步骤 2：正在检查官网注册入口状态...',
         });
