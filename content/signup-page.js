@@ -956,7 +956,7 @@ function logSignupPasswordDiagnostics(context, level = 'warn') {
 
 async function waitForSignupEntryState(options = {}) {
   const {
-    timeout = 15000,
+    timeout = 45000,
     autoOpenEntry = false,
     step = 2,
     logDiagnostics = false,
@@ -1042,7 +1042,7 @@ async function waitForSignupEntryState(options = {}) {
   return finalSnapshot;
 }
 
-async function ensureSignupEntryReady(timeout = 15000) {
+async function ensureSignupEntryReady(timeout = 55000) {
   const snapshot = await waitForSignupEntryState({ timeout, autoOpenEntry: false });
   if (snapshot.state === 'entry_home' || snapshot.state === 'phone_entry' || snapshot.state === 'email_entry' || snapshot.state === 'password_page') {
     return {
@@ -1097,7 +1097,7 @@ async function fillSignupEmailAndContinue(email, step) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
   const snapshot = await waitForSignupEntryState({
-    timeout: 20000,
+    timeout: 60000,
     autoOpenEntry: true,
     step,
     logDiagnostics: step === 2,

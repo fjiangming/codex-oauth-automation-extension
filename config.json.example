@@ -1,6 +1,6 @@
 {
-  "_comment": "Team Register 配置文件 — 编辑此文件后重启 Chrome 或重新加载扩展即可生效。config.json 中的非空值每次启动都会覆盖 storage 中的对应值",
-  "_usage": "复制本文件为 config.json，然后填写需要修改的配置项。值为空字符串的项将使用扩展默认值。如需阻止覆盖已有 storage 值，可设置 _forceOverwrite: false",
+  "_comment": "Team Register 配置文件 — 仅在首次启动（storage 中无对应配置）时自动导入。面板中修改的配置不会被此文件覆盖",
+  "_usage": "复制本文件为 config.json，然后填写需要修改的配置项。值为空字符串的项将使用扩展默认值。如需强制用此文件覆盖面板已有配置，可设置 _forceOverwrite: true",
   "_panelMode": "账号提交来源模式。可选值：cpa（CPA 面板）| sub2api（SUB2API）| codex2api（Codex2API）",
   "panelMode": "cpa",
   "_vpsUrl": "CPA 面板地址（仅 panelMode=cpa 时生效），格式：http://ip:port/management.html#/oauth",

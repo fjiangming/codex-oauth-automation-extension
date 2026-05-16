@@ -107,6 +107,10 @@ scp -r codex-oauth-automation-extension/ root@your-server:~/codex-oauth-automati
 # 或通过 Git
 cd ~
 git clone <your-repo-url> codex-oauth-automation/extension
+
+# 添加脚本执行权限
+chmod +x ~/codex-oauth-automation/extension/deploy.sh
+chmod +x ~/codex-oauth-automation/extension/monitor.sh
 ```
 
 ### 3. 编辑配置
@@ -682,8 +686,8 @@ supervisorctl restart chrome-oauth-automation
 **A**: 检查以下几点：
 1. `config.json` 是否为合法 JSON（可用 `python3 -m json.tool config.json` 验证）
 2. 值为空字符串 `""` 的字段不会被写入
-3. 默认模式下每次启动都会覆盖已存在的配置
-4. 如设置了 `_forceOverwrite: false`，则只写入新键不覆盖已有值
+3. 默认模式下 `config.json` 仅在首次启动时导入，面板中修改的配置不会被覆盖
+4. 如需强制用 `config.json` 覆盖面板已有配置，可设置 `_forceOverwrite: true`
 5. 修改后需要 `supervisorctl restart chrome-oauth-automation`
 
 ### Q: Chrome 进程频繁重启？

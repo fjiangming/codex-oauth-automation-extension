@@ -12478,9 +12478,9 @@ ensureIpProxyAutoSyncAlarm().catch((err) => {
 // [CUSTOM] Config File Injection — 通过 config.json 预配置（支持 Linux 无头环境及本地插件加载）
 // ============================================================
 // 启动时自动读取扩展目录下的 config.json，将配置写入 chrome.storage.local。
-// 默认行为：每次启动都用 config.json 的值覆盖 storage（确保配置文件始终是权威来源）。
-// 如果希望仅写入 storage 中尚不存在的键（不覆盖已有值），可在 config.json 中设置 _forceOverwrite: false。
-// 使用方法：编辑 config.json → 重启 Chrome 或重新加载扩展
+// 默认行为：仅写入 storage 中尚不存在的键（不覆盖面板中已修改的值）。
+// 如果希望强制用 config.json 覆盖面板已有配置，可在 config.json 中设置 _forceOverwrite: true。
+// 使用方法：编辑 config.json → 重启 Chrome 或重新加载扩展（仅首次生效，后续面板修改优先）
 (async function loadConfigFile() {
   const CONFIG_LOG = '[config-loader]';
   try {
@@ -12509,8 +12509,8 @@ ensureIpProxyAutoSyncAlarm().catch((err) => {
     }
 
     const configPayload = Object.fromEntries(entries);
-    // 默认始终覆盖；显式设置 _forceOverwrite: false 可切回仅写入新键的模式
-    const skipExisting = raw._forceOverwrite === false;
+    // 默认仅写入新键（不覆盖面板中已修改的值）；显式设置 _forceOverwrite: true 可强制覆盖
+    const skipExisting = raw._forceOverwrite !== true;
 
     if (skipExisting) {
       // 保守模式：只写入 storage 中尚不存在的 key
