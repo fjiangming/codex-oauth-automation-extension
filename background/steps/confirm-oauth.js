@@ -199,6 +199,21 @@
             chrome.webNavigation.onBeforeNavigate.addListener(deps.getWebNavListener());
             chrome.webNavigation.onCommitted.addListener(deps.getWebNavCommittedListener());
             chrome.tabs.onUpdated.addListener(deps.getStep8TabUpdatedListener());
+
+            // 检查 tab 是否已经在有效的 localhost 回调地址上
+            // （登录后 OAuth 可能跳过 consent 页直接重定向到 callback）
+            try {
+              const currentTab = await chrome.tabs.get(signupTabId);
+              const existingCallbackUrl = getStep8CallbackUrlFromTabUpdate(
+                signupTabId, {}, currentTab, signupTabId
+              );
+              if (existingCallbackUrl) {
+                await addStepLog(visibleStep, `认证页已在 localhost 回调地址上，直接捕获：${existingCallbackUrl}`, 'ok');
+                finalizeStep9Callback(existingCallbackUrl);
+                return;
+              }
+            } catch { /* tab 查询失败则继续正常流程 */ }
+
             await ensureStep8SignupPageReady(signupTabId, {
               timeoutMs: typeof getOAuthFlowStepTimeoutMs === 'function'
                 ? await getOAuthFlowStepTimeoutMs(15000, {

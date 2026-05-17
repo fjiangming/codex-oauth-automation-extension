@@ -22,6 +22,24 @@
   let currentEmail = '';
   let inviteUrl = '';   // 步骤间共享的邀请链接
 
+  // [CUSTOM] max_check_attempts 自动重启相关常量
+  const MAX_CHECK_ATTEMPTS_RESTART_PREFIX = 'MAX_CHECK_ATTEMPTS_RESTART::';
+  const MAX_ROUND_RESTARTS = 3; // 同一轮因 max_check_attempts 最多重启次数
+  const MAX_CHECK_ATTEMPTS_RESTART_WAIT_SECONDS = 30; // 每次重启前等待秒数
+
+  function isMaxCheckAttemptsRestartError(err) {
+    return /MAX_CHECK_ATTEMPTS_RESTART::|AUTH_MAX_CHECK_ATTEMPTS::|max_check_attempts/i.test(
+      err?.message || String(err || '')
+    );
+  }
+
+  // [CUSTOM] 手机号验证检测 — 与 background isAddPhoneAuthFailure 保持一致
+  function isPhoneVerificationError(err) {
+    const message = String(err?.message || err || '');
+    if (/手机号输入模式|phone\s+entry/i.test(message)) return false;
+    return /add-phone|phone-verification|添加手机号|手机号码|手机验证码页|手机验证页|进入手机号页面|手机号页|手机号页面|phone\s+number|telephone/i.test(message);
+  }
+
   // ============================================================
   // DOM References
   // ============================================================
@@ -427,6 +445,8 @@
         }, {
           maxAttempts: 3,
           delayMs: 3000,
+          // [CUSTOM] max_check_attempts 错误不重试，立即上抛交给 runSingleRound 重启
+          shouldRetry: (err) => !isMaxCheckAttemptsRestartError(err),
           onRetry: async (attempt, err) => {
             await addLogFn(`步骤 ${step.id}：${step.title} 失败（${err.message}），3s 后重试...`, 'warn');
           },
@@ -458,10 +478,18 @@
             await U.sleep(1000);
             continue;
           }
+          // [CUSTOM] 检查最近日志是否包含 max_check_attempts，携带重启信号上抛
+          const recentLogs = (state?.logs || []).slice(-15);
+          const hasMaxCheckAttempts = recentLogs.some(log =>
+            /max_check_attempts|AUTH_MAX_CHECK_ATTEMPTS/i.test(log.message || '')
+          );
+          if (hasMaxCheckAttempts) {
+            throw new Error(`${MAX_CHECK_ATTEMPTS_RESTART_PREFIX}原步骤 ${origStep} 因 max_check_attempts 失败，需要从步骤 1 重新开始`);
+          }
           throw new Error(`原步骤 ${origStep} 执行失败`);
         }
       } catch (err) {
-        if (err.message.includes('用户已停止') || err.message.includes('执行失败')) throw err;
+        if (err.message.includes('用户已停止') || err.message.includes('执行失败') || isMaxCheckAttemptsRestartError(err)) throw err;
       }
       await U.sleep(2000);
     }
@@ -540,6 +568,18 @@
 
       const url = String(tab.url || '');
       if (OAUTH_PAGE_URL_PATTERN.test(url)) return; // 仍在 OAuth 页面，无需干预
+
+      // 如果 tab 已经跳转到有效的 localhost OAuth 回调地址（含 code + state），
+      // 说明 OAuth 授权已成功完成（可能跳过了 consent 页），不要关闭 tab，
+      // 让 confirm-oauth.js 直接捕获回调地址。
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/auth\/callback/i.test(url)
+          && /[?&]code=/.test(url) && /[?&]state=/.test(url)) {
+        await addLogFn(
+          `认证页 tab 已跳转到 localhost 回调地址，跳过预检，由后续步骤直接捕获`,
+          'info'
+        );
+        return;
+      }
 
       await addLogFn(
         `检测到认证页 tab 不在 OAuth 页面（当前：${url.slice(0, 100) || 'unknown'}），将关闭后由原流程重新打开`,
@@ -756,7 +796,30 @@
   // ============================================================
   // Main Execution Flow
   // ============================================================
+  // [CUSTOM] runSingleRound 外层：检测 max_check_attempts 并自动重启
   async function runSingleRound(roundNum, totalRounds) {
+    for (let restartCount = 0; restartCount <= MAX_ROUND_RESTARTS; restartCount++) {
+      try {
+        await runSingleRoundCore(roundNum, totalRounds, restartCount);
+        return; // 成功完成，退出重启循环
+      } catch (err) {
+        if (isMaxCheckAttemptsRestartError(err) && restartCount < MAX_ROUND_RESTARTS) {
+          await addLog(
+            `第 ${roundNum}/${totalRounds} 轮检测到 max_check_attempts 错误，` +
+            `将在 ${MAX_CHECK_ATTEMPTS_RESTART_WAIT_SECONDS}s 后自动从步骤 1 重新开始` +
+            `（第 ${restartCount + 1}/${MAX_ROUND_RESTARTS} 次重启）...`,
+            'warn'
+          );
+          await U.sleep(MAX_CHECK_ATTEMPTS_RESTART_WAIT_SECONDS * 1000);
+          throwIfStopped();
+          continue;
+        }
+        throw err; // 非 max_check_attempts 错误或已超过重启上限，正常上抛
+      }
+    }
+  }
+
+  async function runSingleRoundCore(roundNum, totalRounds, restartCount) {
     resetStepStatuses();
     renderSteps();
     currentEmail = '';
@@ -764,7 +827,11 @@
     updateContextDisplay();
     const steps = getSteps();
 
-    await addLog(`=== 开始第 ${roundNum}/${totalRounds} 轮 ===`, 'info');
+    if (restartCount > 0) {
+      await addLog(`=== 第 ${roundNum}/${totalRounds} 轮（第 ${restartCount} 次重启）===`, 'info');
+    } else {
+      await addLog(`=== 开始第 ${roundNum}/${totalRounds} 轮 ===`, 'info');
+    }
 
     // ★ 重置 background 步骤状态，避免上一轮的 completed 状态导致本轮步骤被跳过
     try {
@@ -871,21 +938,39 @@
 
     // 阶段5：原步骤 OAuth 认证
     throwIfStopped();
-    await runOriginalStepsPhase2(addLog);
+    let phase2PhoneVerificationError = null;
+    try {
+      await runOriginalStepsPhase2(addLog);
+    } catch (phase2Err) {
+      // [CUSTOM] 手机号验证错误时，先执行清理再上抛
+      if (currentEmail && isPhoneVerificationError(phase2Err)) {
+        phase2PhoneVerificationError = phase2Err;
+        await addLog(`阶段 5 因手机号验证失败（${phase2Err.message}），将先执行清理步骤再终止当前轮。`, 'warn');
+      } else {
+        throw phase2Err;
+      }
+    }
 
     // 阶段6：清理团队子账号
     const removeStep = steps.find(s => s.key === 'remove-member');
-    if (removeStep) {
-      throwIfStopped();
-      await applyStepDelay(addLog, `步骤 ${removeStep.id}`);
-      setStepStatus(removeStep.id, 'running');
+    if (removeStep && currentEmail) {
+      // 手机号验证失败或正常流程都执行清理
       try {
+        // 用户主动停止时跳过清理（但手机号验证失败时不检查 stopRequested）
+        if (!phase2PhoneVerificationError) throwIfStopped();
+        await applyStepDelay(addLog, `步骤 ${removeStep.id}`);
+        setStepStatus(removeStep.id, 'running');
         await Steps.removeMemberFromTeam(currentEmail, addLog);
         setStepStatus(removeStep.id, 'done');
       } catch (err) {
         setStepStatus(removeStep.id, 'error');
         await addLog(`清理步骤失败：${err.message}（非致命，流程继续）`, 'warn');
       }
+    }
+
+    // 手机号验证错误：清理完成后上抛原始错误
+    if (phase2PhoneVerificationError) {
+      throw phase2PhoneVerificationError;
     }
 
     // 标记为已认证

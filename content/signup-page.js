@@ -6187,6 +6187,16 @@ async function step5_fillNameBirthday(payload) {
   while (!nameInput) {
     throwIfStopped();
 
+    // [CUSTOM] 独立于路径匹配的 max_check_attempts 检测：
+    // 错误页面可能出现在非 STEP5_RETRY_PATH_PATTERNS 匹配的 URL（如 /auth/login_with），
+    // 且重试元素可能是 <a> 标签而非 <button>，导致 getAuthTimeoutErrorPageState 无法识别。
+    // 这里直接检查页面文本，确保任何情况下都能检测到该错误。
+    const step5PageText = getPageTextSnapshot();
+    if (/max_check_attempts/i.test(step5PageText)) {
+      log('步骤 5：检测到 max_check_attempts 错误页面（尝试次数过多），将抛出错误以触发重新开始流程。', 'warn');
+      throw createAuthMaxCheckAttemptsError();
+    }
+
     // 检测是否处于 timeout 错误页面，如果是则点击重试恢复
     const step5RetryState = getAuthTimeoutErrorPageState({ pathPatterns: STEP5_RETRY_PATH_PATTERNS });
     if (step5RetryState) {
@@ -6213,6 +6223,12 @@ async function step5_fillNameBirthday(payload) {
         10000
       );
     } catch {
+      // [CUSTOM] 等待超时后优先检查 max_check_attempts（独立于路径匹配）
+      const step5PageTextAfterWait = getPageTextSnapshot();
+      if (/max_check_attempts/i.test(step5PageTextAfterWait)) {
+        log('步骤 5：等待姓名输入框超时后检测到 max_check_attempts 错误页面，将抛出错误以触发重新开始流程。', 'warn');
+        throw createAuthMaxCheckAttemptsError();
+      }
       // 等待超时后再检测是否又出现了 timeout 错误页面
       const retryStateAfterWait = getAuthTimeoutErrorPageState({ pathPatterns: STEP5_RETRY_PATH_PATTERNS });
       if (retryStateAfterWait) {

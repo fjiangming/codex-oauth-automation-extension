@@ -854,6 +854,74 @@
     }, [{ targetEmail: email }]);
   }
 
+  // [CUSTOM] 在待处理邀请列表中查找邮箱并撤销邀请
+  async function revokeInvitation(email, addLog, existingTabId) {
+    await addLog(`在无痕窗口中打开待处理邀请页面，准备撤销邀请 ${email}...`, 'info');
+    const tabId = existingTabId || await U.openOrReuseTabInIncognito(
+      'https://chatgpt.com/admin/members?tab=invites',
+      'https://chatgpt.com/admin/*'
+    );
+
+    // 切换到 Invites tab
+    await ensureInvitesTab(tabId);
+    await U.sleep(1000);
+
+    // 等待待处理邀请表格渲染
+    const rowCount = await waitForInvitesTableReady(tabId, 12000);
+    if (rowCount === 0) {
+      await addLog(`待处理邀请列表表格未渲染，跳过撤销`, 'warn');
+      return;
+    }
+    await addLog(`待处理邀请列表已加载（${rowCount} 行）`, 'info');
+    await U.sleep(1000);
+
+    // 查找目标邮箱行并点击省略号菜单按钮
+    const findResult = await findAndClickInviteMenu(tabId, email);
+    await addLog(`查找邀请行结果：${findResult?.debug || '无返回'}`, 'info');
+    if (!findResult?.found) {
+      await addLog(`未在待处理邀请列表中找到 ${email}，无需撤销`, 'info');
+      return;
+    }
+
+    // 等待弹出菜单渲染，点击"撤销邀请"
+    let revoked = false;
+    for (let i = 0; i < 12; i++) {
+      await U.sleep(500);
+      revoked = await U.execInTab(tabId, () => {
+        const items = [...document.querySelectorAll(
+          '[role="menuitem"], [role="menu"] button, [data-radix-collection-item]'
+        )];
+        const allTexts = items.map(el => (el.textContent || '').trim()).filter(Boolean);
+        const revokeBtn = items.find(el => {
+          const text = (el.textContent || '').trim();
+          return /撤销邀请|撤銷邀请|Revoke\s*invite/i.test(text);
+        });
+        if (revokeBtn) {
+          const opts = { bubbles: true, cancelable: true, view: window };
+          revokeBtn.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1 }));
+          revokeBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+          revokeBtn.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1 }));
+          revokeBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+          revokeBtn.dispatchEvent(new MouseEvent('click', opts));
+          return { clicked: true, allTexts };
+        }
+        return { clicked: false, allTexts };
+      });
+      if (revoked?.clicked) {
+        await addLog(`已点击"撤销邀请"（菜单项：${revoked.allTexts?.join(', ')}）`, 'ok');
+        break;
+      }
+    }
+    if (!revoked?.clicked) {
+      const menuTexts = revoked?.allTexts?.join(', ') || '无菜单项';
+      await U.execInTab(tabId, () => { document.body.click(); });
+      throw new Error(`未找到"撤销邀请"菜单项（可见菜单：${menuTexts}）`);
+    }
+
+    await U.sleep(2000);
+    await addLog(`已撤销 ${email} 的邀请`, 'ok');
+  }
+
   async function removeMemberFromTeam(email, addLog) {
     await addLog('在无痕窗口中打开 Team 成员管理页面进行清理...', 'info');
     const tabId = await U.openOrReuseTabInIncognito(
@@ -890,8 +958,13 @@
       await addLog(`查找结果：${findResult?.debug || '无返回'}`, 'info');
 
       if (!findResult?.found) {
-        // 表格有行但找不到该邮箱 → 确实不存在
-        await addLog(`未在成员列表中找到 ${email}，已被移除`, 'ok');
+        // [CUSTOM] 成员列表找不到 → 去邀请列表查找并撤销
+        await addLog(`未在成员列表中找到 ${email}，尝试在待处理邀请列表中查找并撤销...`, 'warn');
+        try {
+          await revokeInvitation(email, addLog, tabId);
+        } catch (revokeErr) {
+          await addLog(`撤销邀请失败：${revokeErr.message}（可能该邮箱不在任何列表中）`, 'warn');
+        }
         return;
       }
 
@@ -1045,6 +1118,7 @@
     fetchInvitationEmail,
     acceptCodexInvitation,
     removeMemberFromTeam,
+    revokeInvitation,
     resendInvitation,
   };
 })(window);
