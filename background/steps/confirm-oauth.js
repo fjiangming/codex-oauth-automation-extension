@@ -119,6 +119,14 @@
           resolved = true;
           cleanupListener();
 
+          // [FIX] 立即将 signup-page tab 导航到 about:blank，阻止 Linux headless 环境中
+          // localhost 无服务监听时浏览器回退到 auth.openai.com 登录页导致重复登录的问题。
+          // Windows 上 CPA 服务监听 localhost 端口不会触发回退，但 Linux 无服务时
+          // 浏览器可能因连接失败将 tab 重定向回 OAuth 授权页，content script 自动响应。
+          if (signupTabId && chrome?.tabs?.update) {
+            chrome.tabs.update(signupTabId, { url: 'about:blank' }).catch(() => {});
+          }
+
           addStepLog(visibleStep, `已捕获 localhost 地址：${callbackUrl}`, 'ok').then(() => {
             return completeStepFromBackground(visibleStep, { localhostUrl: callbackUrl });
           }).then(() => {
