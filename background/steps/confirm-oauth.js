@@ -119,10 +119,13 @@
           resolved = true;
           cleanupListener();
 
-          // [FIX] 立即将 signup-page tab 导航到 about:blank，阻止 Linux headless 环境中
-          // localhost 无服务监听时浏览器回退到 auth.openai.com 登录页导致重复登录的问题。
-          // Windows 上 CPA 服务监听 localhost 端口不会触发回退，但 Linux 无服务时
-          // 浏览器可能因连接失败将 tab 重定向回 OAuth 授权页，content script 自动响应。
+          // [FIX] 立即将 signup-page tab 导航到 about:blank，阻止回调后页面重复登录。
+          // 问题：webNavigation.onBeforeNavigate 捕获回调 URL 后，浏览器 tab 仍会继续
+          // 完成对 localhost:1455 的 HTTP 请求。CPA 处理回调后返回的 HTTP 响应可能包含
+          // 重定向（如 302 到 auth.openai.com），导致 signup-page tab 重新导航到登录页，
+          // manifest content_scripts 中的 signup-page.js 自动注入并执行登录流程。
+          // Linux headless 环境中此问题尤为明显（Windows 上时序差异可能使其不触发）。
+          // 回调 URL 已被捕获，platform-verify 步骤通过 API 提交回调，不依赖浏览器 tab。
           if (signupTabId && chrome?.tabs?.update) {
             chrome.tabs.update(signupTabId, { url: 'about:blank' }).catch(() => {});
           }
